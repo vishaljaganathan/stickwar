@@ -182,7 +182,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         {/* TAB: MODES */}
         {activeTab === 'modes' && (
           <div className="space-y-2.5 font-retro">
-            {/* Realtime P2P Section */}
+            {/* Realtime Cloud Relay Section */}
             <div className="p-3.5 bg-amber-100/70 border-2 sm:border-3 border-[#0f172a] rounded-2xl shadow-[3px_3px_0px_#0f172a]">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-1.5">
@@ -190,14 +190,14 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   <span className="font-black text-sm sm:text-base text-[#0f172a]">ONLINE ROOM MATCH</span>
                 </div>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-400 border border-[#0f172a] text-[9px] font-mono font-black text-[#0f172a]">
-                  CROSS-NETWORK P2P
+                  GLOBAL CLOUD RELAY
                 </span>
               </div>
               <p className="text-xs font-hand font-bold text-slate-600 mb-1">
-                Play across public internet, Wi-Fi & 4G/5G mobile with zero setup using room codes!
+                Play across any city (Pondicherry ⇄ Bengaluru) on phone 4G/5G or Wi-Fi with instant room codes!
               </p>
               <div className="flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-800 mb-2.5">
-                <span>✓ STUN & TURN Relay Enabled (Vercel Ready)</span>
+                <span>✓ 100% Connect Rate (Bypasses Mobile CGNAT & Firewalls)</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -305,7 +305,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-xs font-hand space-y-1">
               <p className="font-bold">Share this code or link with Player 2 on any phone or PC!</p>
               <p className="text-[10px] text-slate-500 font-mono">
-                Works across different Wi-Fi and mobile networks via STUN/TURN relays.
+                Works across different cities (Pondicherry ⇄ Bengaluru) on phone 4G/5G and Wi-Fi via Cloud Relay.
               </p>
             </div>
 

@@ -1,4 +1,4 @@
-import Peer, { DataConnection } from 'peerjs';
+import Paho from 'paho-mqtt';
 import { GameState } from '../types/game';
 
 export type NetworkRole = 'host' | 'guest' | 'offline';
@@ -8,48 +8,43 @@ export interface NetworkMessage {
   payload?: any;
 }
 
-// Enterprise-grade public STUN and free TURN relay servers for cross-network (NAT/Cellular) traversal
-export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
-  // Google Public STUN servers
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun3.l.google.com:19302' },
-  { urls: 'stun:stun4.l.google.com:19302' },
+export interface NetworkPacket {
+  senderId: string;
+  senderRole: NetworkRole;
+  type: 'HELLO' | 'WELCOME' | 'SYNC_STATE' | 'REACTION' | 'PING' | 'PONG' | 'DISCONNECT';
+  payload?: any;
+  timestamp: number;
+}
 
-  // Cloudflare STUN server
-  { urls: 'stun:stun.cloudflare.com:3478' },
+interface BrokerEndpoint {
+  host: string;
+  port: number;
+  path: string;
+  name: string;
+}
 
-  // Free OpenRelay TURN servers (Metered.ca) - enables cross-carrier 4G/5G mobile & symmetric NAT traversal
-  {
-    urls: 'turn:openrelay.metered.ca:80',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
-  },
-  {
-    urls: 'turn:openrelay.metered.ca:443',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
-  },
-  {
-    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject'
-  }
+// High-speed, public cloud WebSocket brokers supporting WSS (TLS) - 100% bypasses mobile CGNAT & carrier firewalls
+const BROKERS: BrokerEndpoint[] = [
+  // Primary: EMQX Global Cloud Relay (Singapore/Asia edge, ultra-low latency to India: Pondicherry & Bengaluru)
+  { host: 'broker.emqx.io', port: 8084, path: '/mqtt', name: 'EMQX Asia-Pacific' },
+  // Secondary / Failover: HiveMQ Global Public WSS Relay
+  { host: 'broker.hivemq.com', port: 8884, path: '/mqtt', name: 'HiveMQ Global' }
 ];
 
 export class P2PNetworkManager {
-  private peer: Peer | null = null;
-  private conn: DataConnection | null = null;
-  private heartbeatInterval: number | null = null;
-  private connectionTimeout: number | null = null;
-  private retryAttempts: number = 0;
-  private maxRetries: number = 4;
-  private retryTimer: number | null = null;
-
+  private client: Paho.Client | null = null;
+  public clientId: string = '';
   public roomCode: string = '';
   public role: NetworkRole = 'offline';
   public isConnected: boolean = false;
+
+  private currentBrokerIndex: number = 0;
+  private heartbeatInterval: number | null = null;
+  private presenceAnnouncementInterval: number | null = null;
+  private connectionTimeout: number | null = null;
+  private isConnecting: boolean = false;
+  private guestJoinHandshakeDone: boolean = false;
+  private guestConnectedCallback: (() => void) | null = null;
 
   // Callbacks
   public onStateSync?: (state: Partial<GameState>) => void;
@@ -57,6 +52,14 @@ export class P2PNetworkManager {
   public onOpponentDisconnected?: () => void;
   public onReaction?: (reaction: string) => void;
   public onStatusChange?: (status: string) => void;
+
+  constructor() {
+    this.clientId = this.generateClientId();
+  }
+
+  private generateClientId(): string {
+    return 'sm_' + Math.random().toString(36).substring(2, 10);
+  }
 
   // Generate random readable room code: e.g. SM-7492
   static generateRoomCode(): string {
@@ -68,7 +71,7 @@ export class P2PNetworkManager {
     return `SM-${code}`;
   }
 
-  // Normalize any user input (e.g. "SM-7492", "7492", "sm7492", or full URL) into consistent display and peer IDs
+  // Normalize any user input (e.g. "SM-7492", "7492", "sm7492", or full URL) into consistent clean code
   static normalizeRoomCode(input: string): { displayCode: string; peerId: string; cleanCode: string } {
     let clean = (input || '').trim();
     if (clean.includes('room=')) {
@@ -86,64 +89,52 @@ export class P2PNetworkManager {
     };
   }
 
+  private getTopicBase(cleanCode: string): string {
+    return `stickmanwar/v3/${cleanCode.toLowerCase()}`;
+  }
+
   // Host a new room
   hostRoom(roomCode: string, onReady: (code: string) => void, onError: (err: string) => void) {
     this.cleanup();
     this.role = 'host';
+    this.guestJoinHandshakeDone = false;
 
-    const { displayCode, peerId } = P2PNetworkManager.normalizeRoomCode(roomCode);
+    const { displayCode, cleanCode } = P2PNetworkManager.normalizeRoomCode(roomCode);
     this.roomCode = displayCode;
 
-    this.onStatusChange?.('Connecting to public signaling relay...');
+    this.onStatusChange?.(`Connecting to cloud relay (${BROKERS[0].name})...`);
+    this.connectToBroker(
+      0,
+      () => {
+        const topic = `${this.getTopicBase(cleanCode)}/#`;
+        console.log('[Host] Subscribing to topic:', topic);
+        this.client?.subscribe(topic, {
+          qos: 1,
+          onSuccess: () => {
+            console.log('[Host] Room active on cloud relay:', displayCode);
+            this.onStatusChange?.('Room active! Waiting for Player 2 to join...');
+            onReady(displayCode);
 
-    try {
-      this.peer = new Peer(peerId, {
-        config: {
-          iceServers: DEFAULT_ICE_SERVERS,
-          iceCandidatePoolSize: 10
-        },
-        debug: 1
-      });
-
-      this.peer.on('open', (id) => {
-        console.log('[P2P Host] Registered with ID:', id);
-        this.onStatusChange?.('Room active! Waiting for opponent to join...');
-        onReady(displayCode);
-      });
-
-      this.peer.on('connection', (connection) => {
-        console.log('[P2P Host] Incoming peer connection received');
-        this.conn = connection;
-        this.setupConnectionHandlers();
-      });
-
-      this.peer.on('error', (err: any) => {
-        console.error('[P2P Host Error]:', err);
-        let msg = err.message || 'Failed to create room';
-        if (err.type === 'unavailable-id') {
-          msg = `Room code ${displayCode} is already in use. Please generate a new code.`;
-        } else if (err.type === 'network') {
-          msg = 'Network connection issue with signaling server. Checking connection...';
-        }
-        this.onStatusChange?.(`Error: ${msg}`);
-        onError(msg);
-      });
-
-      this.peer.on('disconnected', () => {
-        console.warn('[P2P Host] Disconnected from signaling server, attempting reconnect...');
-        this.peer?.reconnect();
-      });
-    } catch (e: any) {
-      onError(e.message || 'Failed to initialize WebRTC host');
-    }
+            // Announce presence periodically so guest gets it immediately when joining
+            this.startHostPresenceAnnouncement(cleanCode);
+          },
+          onFailure: (err) => {
+            onError(`Failed to subscribe to room: ${err.errorMessage}`);
+          }
+        });
+      },
+      onError
+    );
   }
 
   // Join an existing room
   joinRoom(roomCode: string, onConnected: () => void, onError: (err: string) => void) {
     this.cleanup();
     this.role = 'guest';
+    this.guestJoinHandshakeDone = false;
+    this.guestConnectedCallback = onConnected;
 
-    const { displayCode, peerId: targetPeerId, cleanCode } = P2PNetworkManager.normalizeRoomCode(roomCode);
+    const { displayCode, cleanCode } = P2PNetworkManager.normalizeRoomCode(roomCode);
     this.roomCode = displayCode;
 
     if (!cleanCode) {
@@ -151,159 +142,274 @@ export class P2PNetworkManager {
       return;
     }
 
-    this.retryAttempts = 0;
-    this.attemptJoin(targetPeerId, displayCode, onConnected, onError);
+    this.onStatusChange?.(`Connecting to room ${displayCode} via cloud relay...`);
+
+    // Timeout guard: 12 seconds
+    this.connectionTimeout = window.setTimeout(() => {
+      if (!this.isConnected) {
+        const msg = `Could not reach room ${displayCode}. Make sure the host has opened the room and is online!`;
+        this.onStatusChange?.(msg);
+        onError(msg);
+        this.cleanup();
+      }
+    }, 12000);
+
+    this.connectToBroker(
+      0,
+      () => {
+        const topic = `${this.getTopicBase(cleanCode)}/#`;
+        console.log('[Guest] Subscribing to room topic:', topic);
+        this.client?.subscribe(topic, {
+          qos: 1,
+          onSuccess: () => {
+            this.onStatusChange?.('Connected to room! Handshaking with Host...');
+            // Send guest HELLO announcement to trigger host sync
+            this.publishPacket(cleanCode, 'presence', {
+              senderId: this.clientId,
+              senderRole: 'guest',
+              type: 'HELLO',
+              timestamp: Date.now()
+            });
+
+            // Start polling join announce until host responds
+            this.startGuestJoinRetry(cleanCode, onConnected);
+          },
+          onFailure: (err) => {
+            onError(`Could not join room topic: ${err.errorMessage}`);
+          }
+        });
+      },
+      onError
+    );
   }
 
-  private attemptJoin(
-    targetPeerId: string,
-    displayCode: string,
-    onConnected: () => void,
+  private connectToBroker(
+    brokerIndex: number,
+    onSuccess: () => void,
     onError: (err: string) => void
   ) {
-    this.onStatusChange?.(
-      this.retryAttempts > 0
-        ? `Connecting to ${displayCode} (Attempt ${this.retryAttempts + 1}/${this.maxRetries})...`
-        : `Locating Match Room ${displayCode}...`
-    );
+    this.currentBrokerIndex = brokerIndex;
+    const broker = BROKERS[brokerIndex];
+    this.clientId = this.generateClientId();
+
+    console.log(`[Relay] Connecting to ${broker.name} (${broker.host}:${broker.port})...`);
+    this.isConnecting = true;
 
     try {
-      this.peer = new Peer({
-        config: {
-          iceServers: DEFAULT_ICE_SERVERS,
-          iceCandidatePoolSize: 10
-        },
-        debug: 1
-      });
+      this.client = new Paho.Client(broker.host, broker.port, broker.path, this.clientId);
 
-      // Overall connection timeout guard (15s)
-      this.connectionTimeout = window.setTimeout(() => {
-        if (!this.isConnected) {
-          const timeoutMsg = `Could not reach Host room ${displayCode}. Make sure the host has opened the room and is online.`;
-          this.onStatusChange?.(timeoutMsg);
-          onError(timeoutMsg);
-          this.cleanup();
-        }
-      }, 15000);
-
-      this.peer.on('open', (guestId) => {
-        console.log('[P2P Guest] Registered self ID:', guestId, 'Connecting to host:', targetPeerId);
-        this.onStatusChange?.('Found room! Negotiating cross-network STUN/TURN connection...');
-
-        const connection = this.peer!.connect(targetPeerId, {
-          reliable: true,
-          serialization: 'json'
-        });
-
-        this.conn = connection;
-        this.setupConnectionHandlers(onConnected);
-      });
-
-      this.peer.on('error', (err: any) => {
-        console.error('[P2P Guest Error]:', err);
-        // If host peer is not yet available, retry smoothly
-        if (err.type === 'peer-unavailable' && this.retryAttempts < this.maxRetries - 1) {
-          this.retryAttempts++;
-          this.onStatusChange?.(`Host initializing... Retrying in 1.5s (${this.retryAttempts}/${this.maxRetries})...`);
-          this.retryTimer = window.setTimeout(() => {
-            if (this.peer) this.peer.destroy();
-            this.attemptJoin(targetPeerId, displayCode, onConnected, onError);
-          }, 1500);
-          return;
-        }
-
-        let msg = err.message || 'Error connecting to room';
-        if (err.type === 'peer-unavailable') {
-          msg = `Room ${displayCode} not found. Please check that the host is active and code is correct.`;
-        }
-        this.onStatusChange?.(`Failed: ${msg}`);
-        onError(msg);
-      });
-    } catch (e: any) {
-      onError(e.message || 'Failed to initialize WebRTC guest');
-    }
-  }
-
-  private setupConnectionHandlers(onConnectedCallback?: () => void) {
-    if (!this.conn) return;
-
-    this.conn.on('open', () => {
-      console.log('[P2P Connection Established] Tunnel open with peer!');
-      if (this.connectionTimeout) {
-        clearTimeout(this.connectionTimeout);
-        this.connectionTimeout = null;
-      }
-      this.isConnected = true;
-      this.onStatusChange?.('Connected! Entering battle...');
-      this.startHeartbeat();
-
-      if (onConnectedCallback) onConnectedCallback();
-      if (this.onOpponentConnected) this.onOpponentConnected();
-    });
-
-    this.conn.on('data', (data) => {
-      const msg = data as NetworkMessage;
-      if (!msg) return;
-
-      if (msg.type === 'PING') {
-        this.send({ type: 'PONG' });
-        return;
-      }
-      if (msg.type === 'PONG') {
-        // Keepalive acknowledged
-        return;
-      }
-      if (msg.type === 'SYNC_STATE' && this.onStateSync) {
-        this.onStateSync(msg.payload);
-      } else if (msg.type === 'REACTION' && this.onReaction) {
-        this.onReaction(msg.payload);
-      }
-    });
-
-    this.conn.on('close', () => {
-      console.warn('[P2P Connection] Connection closed by peer');
-      this.isConnected = false;
-      this.stopHeartbeat();
-      this.onStatusChange?.('Opponent disconnected');
-      if (this.onOpponentDisconnected) this.onOpponentDisconnected();
-    });
-
-    this.conn.on('error', (err) => {
-      console.error('[P2P Connection Error]:', err);
-    });
-
-    // Monitor underlying RTCPeerConnection ICE states
-    const pc = (this.conn as any).peerConnection as RTCPeerConnection | undefined;
-    if (pc) {
-      pc.oniceconnectionstatechange = () => {
-        const state = pc.iceConnectionState;
-        console.log('[WebRTC ICE State]:', state);
-        if (state === 'checking') {
-          this.onStatusChange?.('Punching NAT / Connecting via STUN & TURN...');
-        } else if (state === 'connected' || state === 'completed') {
-          this.onStatusChange?.('P2P connection established!');
-        } else if (state === 'failed') {
-          console.warn('[WebRTC ICE Failed] Attempting ICE restart...');
-          if (typeof (pc as any).restartIce === 'function') {
-            (pc as any).restartIce();
-          }
+      this.client.onConnectionLost = (responseObject) => {
+        console.warn('[Relay Connection Lost]:', responseObject.errorMessage);
+        this.isConnected = false;
+        if (responseObject.errorCode !== 0) {
+          this.onStatusChange?.('Connection lost, auto-reconnecting...');
+          if (this.onOpponentDisconnected) this.onOpponentDisconnected();
         }
       };
+
+      this.client.onMessageArrived = (message) => {
+        this.handleIncomingMessage(message);
+      };
+
+      this.client.connect({
+        useSSL: true,
+        timeout: 6,
+        keepAliveInterval: 15,
+        cleanSession: true,
+        reconnect: true,
+        onSuccess: () => {
+          console.log(`[Relay] Successfully connected to ${broker.name}!`);
+          this.isConnecting = false;
+          this.startHeartbeat();
+          onSuccess();
+        },
+        onFailure: (err) => {
+          console.warn(`[Relay] Failed to connect to ${broker.name}:`, err.errorMessage);
+          this.isConnecting = false;
+
+          // Attempt fallback broker if available
+          if (brokerIndex + 1 < BROKERS.length) {
+            console.log(`[Relay] Trying fallback broker (${BROKERS[brokerIndex + 1].name})...`);
+            this.onStatusChange?.(`Relay failover to ${BROKERS[brokerIndex + 1].name}...`);
+            this.connectToBroker(brokerIndex + 1, onSuccess, onError);
+          } else {
+            const failMsg = `Failed to connect to multiplayer cloud relay. Please check internet.`;
+            this.onStatusChange?.(failMsg);
+            onError(failMsg);
+          }
+        }
+      });
+    } catch (e: any) {
+      onError(e.message || 'Error initializing WebSocket relay');
     }
   }
 
-  // Periodic ping to keep UDP/TCP NAT translation tables alive on mobile networks
+  private handleIncomingMessage(message: Paho.Message) {
+    try {
+      const packet = JSON.parse(message.payloadString) as NetworkPacket;
+      if (!packet || packet.senderId === this.clientId) {
+        // Ignore self-published packets
+        return;
+      }
+
+      console.log(`[Relay Packet Received] ${packet.type} from ${packet.senderRole} (${packet.senderId})`);
+
+      const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
+
+      // Handle Presence Handshake
+      if (packet.type === 'HELLO') {
+        if (this.role === 'host' && packet.senderRole === 'guest') {
+          console.log('[Host] Guest joined! Sending WELCOME response...');
+          this.isConnected = true;
+          this.guestJoinHandshakeDone = true;
+          this.onStatusChange?.('Opponent connected! Match ready.');
+
+          // Send WELCOME packet
+          this.publishPacket(cleanCode, 'presence', {
+            senderId: this.clientId,
+            senderRole: 'host',
+            type: 'WELCOME',
+            timestamp: Date.now()
+          });
+
+          if (this.onOpponentConnected) {
+            this.onOpponentConnected();
+          }
+        }
+      }
+
+      if (packet.type === 'WELCOME') {
+        if (this.role === 'guest' && packet.senderRole === 'host') {
+          console.log('[Guest] Host acknowledged presence! Connected.');
+          if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+          }
+          this.isConnected = true;
+          this.guestJoinHandshakeDone = true;
+          this.onStatusChange?.('Connected! Entering battle...');
+
+          if (this.guestConnectedCallback) {
+            this.guestConnectedCallback();
+            this.guestConnectedCallback = null;
+          }
+
+          if (this.onOpponentConnected) {
+            this.onOpponentConnected();
+          }
+        }
+      }
+
+      // Handle Game State Sync
+      if (packet.type === 'SYNC_STATE' && packet.payload) {
+        // If guest receives sync before handshake finished, complete handshake
+        if (this.role === 'guest' && !this.isConnected) {
+          if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+          }
+          this.isConnected = true;
+          if (this.guestConnectedCallback) {
+            this.guestConnectedCallback();
+            this.guestConnectedCallback = null;
+          }
+          if (this.onOpponentConnected) this.onOpponentConnected();
+        }
+
+        if (this.onStateSync) {
+          this.onStateSync(packet.payload);
+        }
+      }
+
+      // Handle Emoji Reactions
+      if (packet.type === 'REACTION' && packet.payload) {
+        if (this.onReaction) {
+          this.onReaction(packet.payload);
+        }
+      }
+
+      // Handle Disconnect
+      if (packet.type === 'DISCONNECT') {
+        this.isConnected = false;
+        this.onStatusChange?.('Opponent left the room');
+        if (this.onOpponentDisconnected) {
+          this.onOpponentDisconnected();
+        }
+      }
+    } catch (e) {
+      console.error('[Relay] Error parsing message payload:', e);
+    }
+  }
+
+  private publishPacket(cleanCode: string, subTopic: string, packet: NetworkPacket) {
+    if (!this.client || !this.client.isConnected()) return;
+
+    try {
+      const topic = `${this.getTopicBase(cleanCode)}/${subTopic}`;
+      const message = new Paho.Message(JSON.stringify(packet));
+      message.destinationName = topic;
+      message.qos = 1;
+      this.client.send(message);
+    } catch (err) {
+      console.error('[Relay Publish Error]:', err);
+    }
+  }
+
+  private startHostPresenceAnnouncement(cleanCode: string) {
+    if (this.presenceAnnouncementInterval) clearInterval(this.presenceAnnouncementInterval);
+
+    // Broadcast host presence every 2 seconds until guest connects
+    this.presenceAnnouncementInterval = window.setInterval(() => {
+      if (!this.isConnected && this.client && this.client.isConnected()) {
+        this.publishPacket(cleanCode, 'presence', {
+          senderId: this.clientId,
+          senderRole: 'host',
+          type: 'HELLO',
+          timestamp: Date.now()
+        });
+      }
+    }, 2000);
+  }
+
+  private startGuestJoinRetry(cleanCode: string, onConnectedSuccess: () => void) {
+    let attempts = 0;
+    const interval = window.setInterval(() => {
+      if (this.isConnected) {
+        clearInterval(interval);
+        onConnectedSuccess();
+        return;
+      }
+      attempts++;
+      if (attempts > 12) {
+        clearInterval(interval);
+        return;
+      }
+      if (this.client && this.client.isConnected()) {
+        console.log(`[Guest] Pinging Host in ${cleanCode} (attempt ${attempts})...`);
+        this.publishPacket(cleanCode, 'presence', {
+          senderId: this.clientId,
+          senderRole: 'guest',
+          type: 'HELLO',
+          timestamp: Date.now()
+        });
+      }
+    }, 1200);
+  }
+
+  // Periodic heartbeat to prevent mobile carrier timeout
   private startHeartbeat() {
     this.stopHeartbeat();
     this.heartbeatInterval = window.setInterval(() => {
-      if (this.conn && this.conn.open) {
-        try {
-          this.conn.send({ type: 'PING' });
-        } catch {
-          // Ignore transient send glitches
-        }
+      if (this.client && this.client.isConnected() && this.roomCode) {
+        const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
+        this.publishPacket(cleanCode, 'heartbeat', {
+          senderId: this.clientId,
+          senderRole: this.role,
+          type: 'PING',
+          timestamp: Date.now()
+        });
       }
-    }, 5000);
+    }, 8000);
   }
 
   private stopHeartbeat() {
@@ -313,56 +419,71 @@ export class P2PNetworkManager {
     }
   }
 
-  // Send message to peer
-  send(message: NetworkMessage) {
-    if (this.conn && this.conn.open) {
-      try {
-        this.conn.send(message);
-      } catch (err) {
-        console.error('[P2P Send Error]:', err);
-      }
-    }
-  }
-
   // Broadcast full or partial state sync
   syncState(state: Partial<GameState>) {
-    this.send({
+    if (!this.roomCode) return;
+    const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
+
+    this.publishPacket(cleanCode, 'game', {
+      senderId: this.clientId,
+      senderRole: this.role,
       type: 'SYNC_STATE',
-      payload: state
+      payload: state,
+      timestamp: Date.now()
     });
   }
 
   // Send fun reaction emoji/stamp
   sendReaction(reaction: string) {
-    this.send({
+    if (!this.roomCode) return;
+    const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
+
+    this.publishPacket(cleanCode, 'game', {
+      senderId: this.clientId,
+      senderRole: this.role,
       type: 'REACTION',
-      payload: reaction
+      payload: reaction,
+      timestamp: Date.now()
     });
+  }
+
+  // Send custom network message
+  send(message: NetworkMessage) {
+    if (message.type === 'SYNC_STATE') {
+      this.syncState(message.payload);
+    } else if (message.type === 'REACTION') {
+      this.sendReaction(message.payload);
+    }
   }
 
   cleanup() {
     this.stopHeartbeat();
+    if (this.presenceAnnouncementInterval) {
+      clearInterval(this.presenceAnnouncementInterval);
+      this.presenceAnnouncementInterval = null;
+    }
     if (this.connectionTimeout) {
       clearTimeout(this.connectionTimeout);
       this.connectionTimeout = null;
     }
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
-    if (this.conn) {
+    if (this.client) {
       try {
-        this.conn.close();
+        if (this.client.isConnected() && this.roomCode) {
+          const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
+          this.publishPacket(cleanCode, 'presence', {
+            senderId: this.clientId,
+            senderRole: this.role,
+            type: 'DISCONNECT',
+            timestamp: Date.now()
+          });
+          this.client.disconnect();
+        }
       } catch {}
-      this.conn = null;
-    }
-    if (this.peer) {
-      try {
-        this.peer.destroy();
-      } catch {}
-      this.peer = null;
+      this.client = null;
     }
     this.isConnected = false;
+    this.isConnecting = false;
+    this.guestJoinHandshakeDone = false;
   }
 
   disconnect() {
