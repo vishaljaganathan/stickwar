@@ -20,18 +20,18 @@ export const BattleStatus: React.FC<BattleStatusProps> = ({
   const lastRoller = lastRollPlayer ? players[lastRollPlayer] : null;
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-1 shrink-0 select-none my-0.5 flex items-center justify-between gap-1.5">
+    <div className="w-full max-w-5xl mx-auto px-0.5 sm:px-1 shrink-0 select-none my-0.5 flex items-center justify-between gap-1 sm:gap-1.5">
       {/* Reaction popup */}
       {reactionNotice && (
-        <div className="fixed top-14 right-4 z-50 animate-bounce bg-white border-2 border-[#0f172a] rounded-2xl px-3 py-1 shadow-[4px_4px_0px_#0f172a] flex items-center gap-1.5">
-          <span className="text-2xl">{reactionNotice.emoji}</span>
-          <span className="text-[10px] font-retro font-bold text-slate-800">{reactionNotice.from}</span>
+        <div className="fixed top-12 right-3 z-50 animate-bounce bg-white border-2 border-[#0f172a] rounded-2xl px-2.5 py-0.5 shadow-[4px_4px_0px_#0f172a] flex items-center gap-1">
+          <span className="text-xl">{reactionNotice.emoji}</span>
+          <span className="text-[9px] font-retro font-bold text-slate-800">{reactionNotice.from}</span>
         </div>
       )}
 
       {/* Main Tactical Status Indicator */}
       <div
-        className={`flex-1 px-3 py-1 rounded-xl border-2 flex items-center justify-center gap-2 shadow-sm transition-all ${
+        className={`flex-1 px-2 py-0.5 sm:px-3 sm:py-1 rounded-lg sm:rounded-xl border sm:border-2 flex items-center justify-center gap-1.5 shadow-xs transition-all ${
           phase === 'attack_target'
             ? 'bg-rose-500 text-white border-rose-900 animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.6)]'
             : currentTurn === 'p1'
@@ -39,19 +39,19 @@ export const BattleStatus: React.FC<BattleStatusProps> = ({
             : 'bg-rose-600/90 text-white border-rose-950 shadow-[0_0_10px_rgba(225,29,72,0.4)]'
         }`}
       >
-        <span className="text-sm">
+        <span className="text-xs sm:text-sm shrink-0">
           {phase === 'attack_target' ? '⚔️' : phase === 'weapon_select' ? '🛠️' : '🎲'}
         </span>
-        <span className="font-retro font-black text-xs sm:text-sm tracking-wide uppercase">
+        <span className="font-retro font-black text-[10px] sm:text-xs tracking-wide uppercase truncate">
           {phase === 'revealing_roll'
             ? `🎲 ${lastRoller ? lastRoller.name : currentTurnPlayer.name} ROLLED ${lastRoll}!`
             : phase === 'attack_target'
-            ? `TARGETING PHASE: ${currentTurnPlayer.name} CHOOSE AN ENEMY ROW TO STRIKE!`
+            ? `TARGETING: ${currentTurnPlayer.name} TAP AN ENEMY LANE!`
             : phase === 'weapon_select'
             ? `${currentTurnPlayer.name} IS SELECTING A WEAPON...`
             : wasLastRollOdd && lastRoller
-            ? `⚠️ ${lastRoller.name} ROLLED ODD (${lastRoll})! MISSED! ${currentTurnPlayer.name}'S TURN!`
-            : `${currentTurnPlayer.name}'S TURN: TAP YOUR DICE PEDESTAL!`}
+            ? `⚠️ ${lastRoller.name} ROLLED ODD (${lastRoll})! ${currentTurnPlayer.name}'S TURN!`
+            : `${currentTurnPlayer.name}'S TURN: ROLL YOUR DIE!`}
         </span>
       </div>
 

@@ -116,7 +116,7 @@ export const StickmanCell: React.FC<StickmanCellProps> = ({
   return (
     <div
       onClick={canBeAttacked ? onAttackClick : undefined}
-      className={`relative w-full h-full rounded-xl transition-all duration-150 flex items-center justify-center select-none overflow-hidden p-0.5 border-2 ${
+      className={`relative w-full h-full rounded-lg sm:rounded-xl transition-all duration-150 flex items-center justify-center select-none overflow-hidden p-0.5 border sm:border-2 ${
         isCurrentTurnRow && !isDestroyed
           ? 'bg-amber-100/90 border-amber-500 shadow-inner ring-2 ring-amber-400'
           : isAttacker
@@ -161,7 +161,7 @@ export const StickmanCell: React.FC<StickmanCellProps> = ({
       {stage > 0 && (
         <svg
           viewBox="0 0 100 100"
-          className="h-full w-full max-h-full max-w-full aspect-square z-10 transition-transform duration-200 pointer-events-none animate-idle-doodle"
+          className="h-full w-full max-h-full max-w-full aspect-square z-10 transition-transform duration-200 pointer-events-none animate-idle-doodle object-contain"
         >
           {/* STAGE 1+: Head Circle Contour */}
           {stage >= 1 && (

@@ -672,7 +672,7 @@ export const App: React.FC = () => {
   const currentTurnPlayer = gameState.players[gameState.currentTurn];
 
   return (
-    <div className="h-screen h-[100dvh] max-h-screen max-h-[100dvh] w-screen max-w-full overflow-hidden flex flex-col justify-between bg-[#f3f0e8] p-1 sm:p-2 select-none">
+    <div className="h-[100dvh] max-h-[100dvh] w-screen max-w-full overflow-hidden flex flex-col justify-between bg-[#f3f0e8] p-0.5 sm:p-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-[max(0.25rem,env(safe-area-inset-top))] select-none">
       {/* 1. Real Game HUD Bar */}
       <NotebookHeader
         mode={gameState.mode}
@@ -703,7 +703,7 @@ export const App: React.FC = () => {
       />
 
       {/* 3. Main Battlefield Area: Left P1 Die + Center Notebook + Right P2 Die */}
-      <div className="flex-1 min-h-0 w-full max-w-5xl mx-auto flex items-stretch justify-between my-0.5 h-full">
+      <div className="flex-1 min-h-0 w-full max-w-5xl mx-auto flex items-stretch justify-between my-0.5">
         {/* Left Side: Player 1 Die */}
         <SidePlayerDie
           playerId="p1"
