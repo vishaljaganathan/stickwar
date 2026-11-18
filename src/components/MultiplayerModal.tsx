@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { P2PNetworkManager } from '../utils/network';
+import { P2PNetworkManager, networkManager } from '../utils/network';
 import { firebaseSync } from '../utils/firebaseSync';
 
 interface MultiplayerModalProps {
   isOpen: boolean;
   initialTab?: 'modes' | 'host' | 'join';
+  initialRoomCode?: string;
   onClose: () => void;
   onSelectLocal: () => void;
   onSelectAI: () => void;
@@ -16,6 +17,7 @@ interface MultiplayerModalProps {
 export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   isOpen,
   initialTab = 'modes',
+  initialRoomCode = '',
   onClose,
   onSelectLocal,
   onSelectAI,
@@ -26,14 +28,23 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const [activeTab, setActiveTab] = useState<'modes' | 'host' | 'join'>(initialTab);
   const [onlineType, setOnlineType] = useState<'p2p' | 'firebase'>('p2p');
   const [roomCode, setRoomCode] = useState<string>('');
-  const [inputCode, setInputCode] = useState<string>('');
+  const [inputCode, setInputCode] = useState<string>(initialRoomCode);
   const [copyCodeSuccess, setCopyCodeSuccess] = useState<boolean>(false);
   const [copyLinkSuccess, setCopyLinkSuccess] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
+  const [networkStatus, setNetworkStatus] = useState<string>('');
 
   useEffect(() => {
     if (isOpen) {
+      setErrorMessage('');
+      setNetworkStatus('');
+      setIsConnecting(false);
+
+      if (initialRoomCode) {
+        setInputCode(initialRoomCode);
+      }
+
       if (initialTab === 'host') {
         const code = P2PNetworkManager.generateRoomCode();
         setRoomCode(code);
@@ -43,7 +54,21 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         setActiveTab(initialTab);
       }
     }
-  }, [isOpen, initialTab]);
+  }, [isOpen, initialTab, initialRoomCode]);
+
+  // Hook into live network manager status
+  useEffect(() => {
+    networkManager.onStatusChange = (status: string) => {
+      setNetworkStatus(status);
+      if (status.toLowerCase().includes('connected')) {
+        setIsConnecting(false);
+      }
+      if (status.toLowerCase().includes('error') || status.toLowerCase().includes('failed')) {
+        setIsConnecting(false);
+        setErrorMessage(status);
+      }
+    };
+  }, []);
 
   if (!isOpen) return null;
 
@@ -58,6 +83,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     setOnlineType(type);
     setActiveTab('host');
     setErrorMessage('');
+    setNetworkStatus('Creating room & registering with STUN/TURN relays...');
     onStartOnlineHost(type === 'firebase' ? 'online_firebase' : 'online_p2p', code);
   };
 
@@ -69,16 +95,33 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     setOnlineType(type);
     setActiveTab('join');
     setErrorMessage('');
+    setNetworkStatus('');
   };
 
   const submitJoin = () => {
-    if (!inputCode.trim()) {
-      setErrorMessage('Please enter a room code');
+    const normalized = P2PNetworkManager.normalizeRoomCode(inputCode);
+    if (!normalized.cleanCode) {
+      setErrorMessage('Please enter a valid room code (e.g. SM-7492)');
       return;
     }
     setIsConnecting(true);
     setErrorMessage('');
-    onStartOnlineJoin(onlineType === 'firebase' ? 'online_firebase' : 'online_p2p', inputCode.trim().toUpperCase());
+    setNetworkStatus('Connecting to room across internet (STUN/TURN)...');
+    onStartOnlineJoin(onlineType === 'firebase' ? 'online_firebase' : 'online_p2p', normalized.displayCode);
+  };
+
+  const handlePasteCode = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const normalized = P2PNetworkManager.normalizeRoomCode(text);
+      if (normalized.displayCode) {
+        setInputCode(normalized.displayCode);
+      } else {
+        setInputCode(text.trim().toUpperCase());
+      }
+    } catch {
+      // Clipboard access denied, user can type manually
+    }
   };
 
   const copyCodeOnly = () => {
@@ -104,9 +147,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         <div className="flex items-center justify-between mt-1 mb-3 border-b-2 border-slate-200 pb-2">
           <div className="flex items-center gap-2">
             <span className="text-2xl">🎮</span>
-            <h2
-              className="text-xl sm:text-2xl font-retro font-black text-[#0f172a] uppercase tracking-wide"
-            >
+            <h2 className="text-xl sm:text-2xl font-retro font-black text-[#0f172a] uppercase tracking-wide">
               {activeTab === 'host'
                 ? 'ONLINE MATCH HOST'
                 : activeTab === 'join'
@@ -122,9 +163,19 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           </button>
         </div>
 
+        {/* Global Error Banner */}
         {errorMessage && (
-          <div className="mb-2.5 p-2 rounded-xl bg-rose-100 border-2 border-rose-400 text-rose-800 text-xs font-retro font-bold">
-            {errorMessage}
+          <div className="mb-2.5 p-2 rounded-xl bg-rose-100 border-2 border-rose-400 text-rose-800 text-xs font-retro font-bold flex items-start gap-1.5">
+            <span className="text-base shrink-0">⚠️</span>
+            <div className="flex-1">{errorMessage}</div>
+          </div>
+        )}
+
+        {/* Live Network Status Indicator */}
+        {networkStatus && !errorMessage && (
+          <div className="mb-2.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-mono font-bold flex items-center gap-2 animate-pulse">
+            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+            <span className="truncate">{networkStatus}</span>
           </div>
         )}
 
@@ -139,12 +190,15 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   <span className="font-black text-sm sm:text-base text-[#0f172a]">ONLINE ROOM MATCH</span>
                 </div>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-400 border border-[#0f172a] text-[9px] font-mono font-black text-[#0f172a]">
-                  WEBRTC P2P
+                  CROSS-NETWORK P2P
                 </span>
               </div>
-              <p className="text-xs font-hand font-bold text-slate-600 mb-2.5">
-                Instant multiplayer on 2 devices with a 4-letter room code! Zero setup required.
+              <p className="text-xs font-hand font-bold text-slate-600 mb-1">
+                Play across public internet, Wi-Fi & 4G/5G mobile with zero setup using room codes!
               </p>
+              <div className="flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-800 mb-2.5">
+                <span>✓ STUN & TURN Relay Enabled (Vercel Ready)</span>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => handleStartHosting('p2p')}
@@ -203,7 +257,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
             {/* Firebase option */}
             <div className="pt-1.5 flex items-center justify-between border-t border-slate-200 text-xs">
-              <span className="text-slate-500 text-[10px] font-mono">Firebase RTDB:</span>
+              <span className="text-slate-500 text-[10px] font-mono">Firebase RTDB Backup:</span>
               <div className="flex gap-2">
                 <button onClick={onOpenFirebaseConfig} className="text-blue-700 font-bold underline hover:text-blue-900 text-xs">
                   Config
@@ -230,7 +284,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               >
                 {roomCode}
               </div>
-              <span className="text-[11px] font-hand font-bold text-slate-500">Tap room code to copy</span>
+              <span className="text-[11px] font-hand font-bold text-slate-500">Tap code to copy</span>
             </div>
 
             <div className="flex flex-wrap justify-center gap-2">
@@ -248,9 +302,11 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               </button>
             </div>
 
-            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-600 pt-1 animate-pulse font-mono font-bold">
-              <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
-              <span>WAITING FOR OPPONENT TO CONNECT...</span>
+            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-xs font-hand space-y-1">
+              <p className="font-bold">Share this code or link with Player 2 on any phone or PC!</p>
+              <p className="text-[10px] text-slate-500 font-mono">
+                Works across different Wi-Fi and mobile networks via STUN/TURN relays.
+              </p>
             </div>
 
             <div className="pt-2 border-t border-slate-200">
@@ -266,23 +322,39 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           <div className="py-2 space-y-3 font-retro">
             <div className="text-center">
               <h3 className="text-lg font-black text-[#0f172a] uppercase">ENTER MATCH CODE</h3>
-              <p className="text-xs font-hand font-bold text-slate-500">Type the 4-letter room code shared by your friend</p>
+              <p className="text-xs font-hand font-bold text-slate-500">Type or paste the 4-letter room code shared by the host</p>
             </div>
 
-            <div className="max-w-xs mx-auto">
-              <input
-                type="text"
-                value={inputCode}
-                onChange={(e) => setInputCode(e.target.value.toUpperCase())}
-                placeholder="SM-XXXX"
-                maxLength={10}
-                className="w-full text-center text-3xl font-mono font-black tracking-widest uppercase bg-white border-3 border-[#0f172a] rounded-2xl py-2 px-3 focus:outline-none focus:ring-4 focus:ring-amber-300 shadow-[3px_3px_0px_#0f172a]"
-              />
+            <div className="max-w-xs mx-auto space-y-2">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={inputCode}
+                  onChange={(e) => setInputCode(e.target.value.toUpperCase())}
+                  placeholder="SM-XXXX"
+                  maxLength={10}
+                  className="w-full text-center text-3xl font-mono font-black tracking-widest uppercase bg-white border-3 border-[#0f172a] rounded-2xl py-2 px-3 focus:outline-none focus:ring-4 focus:ring-amber-300 shadow-[3px_3px_0px_#0f172a]"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={handlePasteCode}
+                  className="text-xs font-hand font-bold text-blue-700 hover:underline flex items-center gap-1"
+                >
+                  📋 Paste from Clipboard
+                </button>
+              </div>
             </div>
 
-            <div className="flex justify-center gap-2">
+            <div className="flex justify-center gap-2 pt-1">
               <button
-                onClick={() => setActiveTab('modes')}
+                onClick={() => {
+                  setIsConnecting(false);
+                  setActiveTab('modes');
+                }}
                 className="btn-retro px-4 py-1.5 bg-white text-[#0f172a] rounded-xl text-xs font-black"
               >
                 BACK
@@ -290,10 +362,18 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               <button
                 onClick={submitJoin}
                 disabled={isConnecting}
-                className="btn-retro px-5 py-1.5 bg-amber-400 hover:bg-amber-300 text-[#0f172a] rounded-xl text-xs font-black"
+                className={`btn-retro px-5 py-1.5 text-[#0f172a] rounded-xl text-xs font-black ${
+                  isConnecting ? 'bg-amber-200 cursor-not-allowed' : 'bg-amber-400 hover:bg-amber-300'
+                }`}
               >
                 {isConnecting ? 'CONNECTING...' : '⚔️ JOIN MATCH'}
               </button>
+            </div>
+
+            <div className="text-center pt-1">
+              <span className="text-[10px] font-mono text-slate-400">
+                Supports cross-carrier cellular data and Wi-Fi NAT traversal
+              </span>
             </div>
           </div>
         )}

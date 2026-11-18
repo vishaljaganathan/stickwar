@@ -32,6 +32,7 @@ export const App: React.FC = () => {
   const [multiplayerTab, setMultiplayerTab] = useState<'modes' | 'host' | 'join'>('modes');
   const [isFirebaseConfigOpen, setIsFirebaseConfigOpen] = useState<boolean>(false);
   const [reactionNotice, setReactionNotice] = useState<{ emoji: string; from: string } | null>(null);
+  const [initialRoomCode, setInitialRoomCode] = useState<string>('');
 
   // Dice visual state
   const [p1Display, setP1Display] = useState<RowIndex | string>('?');
@@ -54,6 +55,7 @@ export const App: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
     if (roomParam) {
+      setInitialRoomCode(roomParam);
       setMultiplayerTab('join');
       setIsMultiplayerOpen(true);
     }
@@ -433,7 +435,7 @@ export const App: React.FC = () => {
       networkManager.hostRoom(
         roomCode,
         () => console.log('Host room ready:', roomCode),
-        (err) => alert(err)
+        (err) => console.error('Host error:', err)
       );
       networkManager.onOpponentConnected = () => {
         broadcastState(newGame);
@@ -465,7 +467,7 @@ export const App: React.FC = () => {
           setGameState(newGame);
           setIsMultiplayerOpen(false);
         },
-        (err) => alert(err)
+        (err) => console.error('Join error:', err)
       );
     } else {
       firebaseSync.joinRoom(roomCode).then(() => {
@@ -597,6 +599,7 @@ export const App: React.FC = () => {
       <MultiplayerModal
         isOpen={isMultiplayerOpen}
         initialTab={multiplayerTab}
+        initialRoomCode={initialRoomCode}
         onClose={() => setIsMultiplayerOpen(false)}
         onSelectLocal={() => {
           setGameState(createInitialGameState('local'));
