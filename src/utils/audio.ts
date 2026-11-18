@@ -28,9 +28,7 @@ class SoundEngine {
       const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
       const output = buffer.getChannelData(0);
 
-      // Generate scratchy noise
       for (let i = 0; i < bufferSize; i++) {
-        // Modulate scratchiness to mimic handwriting zig-zags
         const t = i / this.ctx.sampleRate;
         const scratchMod = Math.sin(t * 70) * 0.4 + 0.6;
         output[i] = (Math.random() * 2 - 1) * scratchMod;
@@ -39,7 +37,6 @@ class SoundEngine {
       const whiteNoise = this.ctx.createBufferSource();
       whiteNoise.buffer = buffer;
 
-      // Bandpass filter to sound like graphite on notebook paper
       const filter = this.ctx.createBiquadFilter();
       filter.type = 'bandpass';
       filter.frequency.setValueAtTime(2400, this.ctx.currentTime);
@@ -55,9 +52,7 @@ class SoundEngine {
       gain.connect(this.ctx.destination);
 
       whiteNoise.start();
-    } catch {
-      // Audio fallback silent
-    }
+    } catch {}
   }
 
   // Violent scribble sound when crossing out a destroyed row
@@ -67,7 +62,7 @@ class SoundEngine {
     if (!this.ctx) return;
 
     try {
-      const duration = 0.6;
+      const duration = 0.55;
       const bufferSize = this.ctx.sampleRate * duration;
       const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
       const data = buffer.getChannelData(0);
@@ -96,13 +91,10 @@ class SoundEngine {
       gain.connect(this.ctx.destination);
 
       noise.start();
-
-      // Also add a low thud impact
       this.playThud();
     } catch {}
   }
 
-  // Low thud for damage impact
   private playThud() {
     if (!this.ctx) return;
     const osc = this.ctx.createOscillator();
@@ -121,14 +113,12 @@ class SoundEngine {
     osc.stop(this.ctx.currentTime + 0.25);
   }
 
-  // Dice rattling and clattering sound
   playDiceRoll() {
     if (!this.enabled) return;
     this.initCtx();
     if (!this.ctx) return;
 
     try {
-      // 4 quick rattle clicks then a final tumble
       const now = this.ctx.currentTime;
       for (let i = 0; i < 5; i++) {
         const timeOffset = now + i * 0.08 + Math.random() * 0.04;
@@ -151,7 +141,7 @@ class SoundEngine {
     } catch {}
   }
 
-  // Attack weapon sounds
+  // Attack weapon sounds with customized audio profiles for each weapon
   playAttack(weaponType: string = 'sword') {
     if (!this.enabled) return;
     this.initCtx();
@@ -159,56 +149,89 @@ class SoundEngine {
 
     try {
       const now = this.ctx.currentTime;
-      if (weaponType === 'bazooka' || weaponType === 'rocket') {
-        // Rocket whoosh then blast
+
+      if (weaponType === 'bazooka') {
+        // Rocket launch whoosh + explosion impact
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(300, now);
-        osc.frequency.linearRampToValueAtTime(80, now + 0.3);
+        osc.frequency.setValueAtTime(150, now);
+        osc.frequency.exponentialRampToValueAtTime(450, now + 0.25);
+        osc.frequency.linearRampToValueAtTime(60, now + 0.55);
 
-        gain.gain.setValueAtTime(0.3, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+        gain.gain.setValueAtTime(0.1, now);
+        gain.gain.linearRampToValueAtTime(0.4, now + 0.25);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
 
         osc.connect(gain);
         gain.connect(this.ctx.destination);
         osc.start(now);
-        osc.stop(now + 0.4);
-      } else if (weaponType === 'sniper' || weaponType === 'laser') {
-        // High laser / snap shot
+        osc.stop(now + 0.65);
+      } else if (weaponType === 'sniper') {
+        // High caliber sharp supersonic crack
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(1400, now);
+        osc.frequency.exponentialRampToValueAtTime(120, now + 0.2);
+
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.26);
+      } else if (weaponType === 'bow') {
+        // Wooden bowstring snap + whoosh
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(1800, now);
-        osc.frequency.exponentialRampToValueAtTime(200, now + 0.2);
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.06);
+        osc.frequency.exponentialRampToValueAtTime(300, now + 0.22);
 
-        gain.gain.setValueAtTime(0.25, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
 
         osc.connect(gain);
         gain.connect(this.ctx.destination);
         osc.start(now);
-        osc.stop(now + 0.23);
+        osc.stop(now + 0.26);
+      } else if (weaponType === 'laser') {
+        // Neon blaster laser chirp
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(2200, now);
+        osc.frequency.exponentialRampToValueAtTime(350, now + 0.28);
+
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.31);
       } else {
-        // Sword slash whoosh
+        // Sword slash whoosh and blade clink
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(600, now);
-        osc.frequency.linearRampToValueAtTime(120, now + 0.15);
+        osc.frequency.setValueAtTime(750, now);
+        osc.frequency.linearRampToValueAtTime(180, now + 0.18);
 
-        gain.gain.setValueAtTime(0.25, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
 
         osc.connect(gain);
         gain.connect(this.ctx.destination);
         osc.start(now);
-        osc.stop(now + 0.2);
+        osc.stop(now + 0.21);
       }
     } catch {}
   }
 
-  // Dead roll "buzz" / doodle groan
   playDeadRoll() {
     if (!this.enabled) return;
     this.initCtx();
@@ -232,14 +255,13 @@ class SoundEngine {
     } catch {}
   }
 
-  // Victory fanfare
   playVictory() {
     if (!this.enabled) return;
     this.initCtx();
     if (!this.ctx) return;
 
     try {
-      const notes = [261.63, 329.63, 392.00, 523.25]; // C4, E4, G4, C5
+      const notes = [261.63, 329.63, 392.00, 523.25];
       const now = this.ctx.currentTime;
       notes.forEach((freq, idx) => {
         const time = now + idx * 0.12;
@@ -261,7 +283,6 @@ class SoundEngine {
     } catch {}
   }
 
-  // Weapon equip sound (pencil chime)
   playWeaponEquip() {
     if (!this.enabled) return;
     this.initCtx();

@@ -15,16 +15,21 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
 }) => {
   const { players, currentTurn, phase, lastRoll, pendingRowTarget } = gameState;
   const opponentId: PlayerId = currentTurn === 'p1' ? 'p2' : 'p1';
+  const currentTurnPlayer = players[currentTurn];
+
+  const isMyTurnToAttack = !localPlayerId || localPlayerId === currentTurn;
 
   const canAttackTarget = (targetPlayerId: PlayerId, targetRow: RowIndex) => {
     if (phase !== 'attack_target') return false;
-    if (localPlayerId && localPlayerId !== currentTurn) return false;
+    // Only the active player can initiate an attack
+    if (!isMyTurnToAttack) return false;
+    // Target must be opponent and not destroyed
     if (targetPlayerId !== opponentId) return false;
     return !players[targetPlayerId].cells[targetRow].isDestroyed;
   };
 
   return (
-    <div className="relative w-full max-w-4xl mx-auto flex-1 min-h-0 bg-[#fdfbf7] rounded-xl border-3 border-gray-800 shadow-[4px_4px_0px_#1e293b] overflow-hidden notebook-paper flex flex-col justify-between my-1">
+    <div className="relative w-full max-w-4xl mx-auto flex-1 min-h-0 bg-[#fdfbf7] rounded-xl border-3 border-gray-800 shadow-[4px_4px_0px_#1e293b] overflow-hidden notebook-paper flex flex-col justify-between my-1 select-none">
       {/* Notebook Binder Spiral / Punch Holes on the left edge */}
       <div className="absolute left-1.5 sm:left-2 top-0 bottom-0 z-30 flex flex-col justify-around py-2 pointer-events-none">
         {[...Array(6)].map((_, i) => (
@@ -121,9 +126,16 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
         {/* Attack Phase Instruction Banner */}
         {phase === 'attack_target' && (
           <div className="py-1 px-2 rounded-lg bg-rose-100 border border-rose-400 text-center animate-pulse shrink-0 mt-0.5">
-            <span className="font-hand font-bold text-rose-800 text-xs sm:text-sm">
-              💥 Stickman on Row {pendingRowTarget} is ready! Click an alive opponent row to DESTROY it!
-            </span>
+            {isMyTurnToAttack ? (
+              <span className="font-hand font-bold text-rose-800 text-xs sm:text-sm">
+                💥 Stickman on Row {pendingRowTarget} is armed! Click an alive opponent row above to STRIKE!
+              </span>
+            ) : (
+              <span className="font-hand font-bold text-rose-700 text-xs sm:text-sm flex items-center justify-center gap-1">
+                <span>🛡️</span>
+                <span>Incoming Attack! <strong>{currentTurnPlayer.name}</strong> is choosing which of your rows to destroy...</span>
+              </span>
+            )}
           </div>
         )}
       </div>
