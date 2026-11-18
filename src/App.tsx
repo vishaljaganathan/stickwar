@@ -504,7 +504,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="h-screen h-[100dvh] max-h-screen max-h-[100dvh] w-screen max-w-full overflow-hidden flex flex-col justify-between bg-[#f3f0e8] p-1 sm:p-2 select-none">
-      {/* 1. Header Bar */}
+      {/* 1. Real Game HUD Bar */}
       <NotebookHeader
         mode={gameState.mode}
         roomCode={gameState.roomCode}
@@ -520,11 +520,18 @@ export const App: React.FC = () => {
           setIsMultiplayerOpen(true);
         }}
         onResetGame={handleResetGame}
-        onSendReaction={handleSendReaction}
+        player1={gameState.players.p1}
+        player2={gameState.players.p2}
+        currentTurn={gameState.currentTurn}
+        lastLogEntry={gameState.log[gameState.log.length - 1] || 'Battle ready! Roll to recruit stickmen.'}
       />
 
-      {/* 2. Status & Scoreboard */}
-      <BattleStatus gameState={gameState} reactionNotice={reactionNotice} />
+      {/* 2. Tactical Status & Emote Ribbon */}
+      <BattleStatus
+        gameState={gameState}
+        reactionNotice={reactionNotice}
+        onSendReaction={handleSendReaction}
+      />
 
       {/* 3. Main Battlefield Area: Left P1 Die + Center Notebook + Right P2 Die */}
       <div className="flex-1 min-h-0 w-full max-w-5xl mx-auto flex items-stretch justify-between my-0.5 h-full">
