@@ -462,7 +462,7 @@ export const App: React.FC = () => {
   const currentTurnPlayer = gameState.players[gameState.currentTurn];
 
   return (
-    <div className="h-screen max-h-screen w-screen max-w-full overflow-hidden flex flex-col justify-between bg-[#f3f0e8] p-1.5 sm:p-2.5 select-none">
+    <div className="h-screen h-[100dvh] max-h-screen max-h-[100dvh] w-screen max-w-full overflow-hidden flex flex-col justify-between bg-[#f3f0e8] p-1 sm:p-2 select-none">
       {/* 1. Header Bar */}
       <NotebookHeader
         mode={gameState.mode}
