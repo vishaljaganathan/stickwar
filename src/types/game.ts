@@ -1,6 +1,9 @@
 export type RowIndex = 0 | 2 | 4 | 6 | 8;
 export const ROW_NUMBERS: RowIndex[] = [0, 2, 4, 6, 8];
 
+export type DiceRoll = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+export const DICE_NUMBERS: DiceRoll[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
 export type WeaponType = 'sword' | 'sniper' | 'bazooka' | 'bow' | 'laser';
 
 export interface WeaponInfo {
@@ -18,8 +21,18 @@ export const WEAPONS: WeaponInfo[] = [
   { id: 'laser', name: 'Highlighter Blaster', icon: '⚡', doodleDesc: 'Neon highlighter laser cannon' }
 ];
 
+// Assembly stages:
+// 0 = empty
+// 1 = head circle
+// 2 = face (eyes + mouth)
+// 3 = body (torso)
+// 4 = hands (arms)
+// 5 = legs (complete stickman)
+// 6 = armed (with weapon)
+export type StickmanStage = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
 export interface CellState {
-  stage: 0 | 1 | 2 | 3; // 0 = empty, 1 = head, 2 = body, 3 = armed
+  stage: StickmanStage;
   weapon?: WeaponType;
   isDestroyed: boolean;
   justUpdated?: boolean;
@@ -39,8 +52,8 @@ export type GameMode = 'local' | 'ai' | 'online_p2p' | 'online_firebase';
 export type GamePhase = 
   | 'turn_ready'       // Waiting for player to roll die
   | 'rolling'          // Die tumble animation in progress
-  | 'weapon_select'    // Active player just reached stage 3 and must choose weapon
-  | 'attack_target'    // Stickman is armed (stage 3) and player must choose opponent row to destroy
+  | 'weapon_select'    // Active player just reached stage 5 and must choose weapon
+  | 'attack_target'    // Stickman is armed (stage 6) and player must choose opponent row to destroy
   | 'animating_attack' // Projectile & scribble animation playing
   | 'game_over';       // Winner found
 
@@ -56,7 +69,7 @@ export interface GameState {
   mode: GameMode;
   currentTurn: PlayerId;
   phase: GamePhase;
-  lastRoll: RowIndex | null;
+  lastRoll: DiceRoll | null;
   lastRollPlayer: PlayerId | null;
   pendingRowTarget: RowIndex | null;
   attackAnim: AttackAnimationData | null;
@@ -87,7 +100,7 @@ export const createInitialGameState = (mode: GameMode = 'local'): GameState => (
   lastRollPlayer: null,
   pendingRowTarget: null,
   attackAnim: null,
-  log: ['Match started! Roll the notebook die to recruit stickmen.'],
+  log: ['Match started! Roll the 10-sided die (0-9). Even numbers recruit stickmen, odd numbers skip turn!'],
   winner: null,
   players: {
     p1: createInitialPlayer('p1', 'Player 1', '#1e3a8a'), // Classic blue pen ink

@@ -3,6 +3,9 @@ import {
   GameState,
   RowIndex,
   ROW_NUMBERS,
+  DiceRoll,
+  DICE_NUMBERS,
+  StickmanStage,
   PlayerId,
   WeaponType,
   WEAPONS,
@@ -34,9 +37,9 @@ export const App: React.FC = () => {
   const [reactionNotice, setReactionNotice] = useState<{ emoji: string; from: string } | null>(null);
   const [initialRoomCode, setInitialRoomCode] = useState<string>('');
 
-  // Dice visual state
-  const [p1Display, setP1Display] = useState<RowIndex | string>('?');
-  const [p2Display, setP2Display] = useState<RowIndex | string>('?');
+  // Dice visual state (can show 0-9 or '?')
+  const [p1Display, setP1Display] = useState<number | string>('?');
+  const [p2Display, setP2Display] = useState<number | string>('?');
   const [rollingPlayer, setRollingPlayer] = useState<PlayerId | null>(null);
 
   const gameStateRef = useRef(gameState);
@@ -81,7 +84,7 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Animated Die Roll Trigger
+  // Animated Die Roll Trigger (rolls 0-9)
   const triggerRollForPlayer = (playerId: PlayerId) => {
     const currentState = gameStateRef.current;
     if (currentState.currentTurn !== playerId) return;
@@ -94,14 +97,14 @@ export const App: React.FC = () => {
 
     let counter = 0;
     const interval = setInterval(() => {
-      const tempVal = ROW_NUMBERS[Math.floor(Math.random() * ROW_NUMBERS.length)];
+      const tempVal = DICE_NUMBERS[Math.floor(Math.random() * DICE_NUMBERS.length)];
       if (playerId === 'p1') setP1Display(tempVal);
       else setP2Display(tempVal);
 
       counter++;
       if (counter > 8) {
         clearInterval(interval);
-        const finalVal = ROW_NUMBERS[Math.floor(Math.random() * ROW_NUMBERS.length)];
+        const finalVal = DICE_NUMBERS[Math.floor(Math.random() * DICE_NUMBERS.length)];
         if (playerId === 'p1') setP1Display(finalVal);
         else setP2Display(finalVal);
 
@@ -111,31 +114,28 @@ export const App: React.FC = () => {
     }, 85);
   };
 
-  // Roll Resolution
-  const handleRollResolution = (playerId: PlayerId, rolledNumber: RowIndex) => {
+  // Roll Resolution (Handles Odd Numbers, Dead Rolls, 6-Stage Evolution, and Weapon/Attack)
+  const handleRollResolution = (playerId: PlayerId, rolledNumber: DiceRoll) => {
     const currentState = gameStateRef.current;
     if (currentState.currentTurn !== playerId) return;
 
     const { currentTurn, players } = currentState;
     const activePlayer = players[currentTurn];
-    const targetCell = activePlayer.cells[rolledNumber];
+    const nextTurn = getNextPlayer(currentTurn);
 
-    const nextPlayers = { ...players };
-    const updatedCells = { ...activePlayer.cells };
-
-    // Case 1: Target row is ALREADY DESTROYED -> Dead Roll!
-    if (targetCell.isDestroyed) {
-      sounds.playDeadRoll();
-      const nextTurn = getNextPlayer(currentTurn);
+    // Case 1: ODD NUMBER (1, 3, 5, 7, 9) -> Turn skipped, must wait for an even number!
+    if (rolledNumber % 2 !== 0) {
+      sounds.playOddRoll();
       const nextState: GameState = {
         ...currentState,
         lastRoll: rolledNumber,
         lastRollPlayer: playerId,
         currentTurn: nextTurn,
         phase: 'turn_ready',
+        pendingRowTarget: null,
         log: [
           ...currentState.log,
-          `${activePlayer.name} rolled ${rolledNumber}: Dead Roll! (Row was already destroyed). Turn passed!`
+          `⚠️ ${activePlayer.name} rolled ODD (${rolledNumber})! Missed turn — wait for an even number next time!`
         ]
       };
       setGameState(nextState);
@@ -143,10 +143,37 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Case 2: Stickman Stage 0 or 1 -> Increment stage
-    if (targetCell.stage < 2) {
-      const newStage = (targetCell.stage + 1) as 1 | 2;
-      updatedCells[rolledNumber] = {
+    // Rolled number is EVEN (0, 2, 4, 6, 8) -> Targets specific Lane
+    const targetRow = rolledNumber as RowIndex;
+    const targetCell = activePlayer.cells[targetRow];
+
+    const nextPlayers = { ...players };
+    const updatedCells = { ...activePlayer.cells };
+
+    // Case 2: Target row is ALREADY DESTROYED -> Dead Roll!
+    if (targetCell.isDestroyed) {
+      sounds.playDeadRoll();
+      const nextState: GameState = {
+        ...currentState,
+        lastRoll: rolledNumber,
+        lastRollPlayer: playerId,
+        currentTurn: nextTurn,
+        phase: 'turn_ready',
+        pendingRowTarget: null,
+        log: [
+          ...currentState.log,
+          `${activePlayer.name} rolled ${targetRow}: Dead Roll! (Lane was already destroyed). Turn passed!`
+        ]
+      };
+      setGameState(nextState);
+      broadcastState(nextState);
+      return;
+    }
+
+    // Case 3: Stickman Stages 0 to 4 -> Draw Head Circle -> Face -> Body -> Hands -> Legs
+    if (targetCell.stage < 5) {
+      const newStage = (targetCell.stage + 1) as StickmanStage;
+      updatedCells[targetRow] = {
         ...targetCell,
         stage: newStage
       };
@@ -156,8 +183,14 @@ export const App: React.FC = () => {
       };
 
       sounds.playPencilScribble();
-      const stageName = newStage === 1 ? 'Head' : 'Body';
-      const nextTurn = getNextPlayer(currentTurn);
+      const stageNames: Record<number, string> = {
+        1: 'Head Circle',
+        2: 'Face & Smile',
+        3: 'Torso & Spine',
+        4: 'Hands & Arms',
+        5: 'Legs (Stickman Assembled!)'
+      };
+      const stageDescription = stageNames[newStage] || `Stage ${newStage}`;
 
       const nextState: GameState = {
         ...currentState,
@@ -166,9 +199,10 @@ export const App: React.FC = () => {
         lastRollPlayer: playerId,
         currentTurn: nextTurn,
         phase: 'turn_ready',
+        pendingRowTarget: null,
         log: [
           ...currentState.log,
-          `${activePlayer.name} rolled ${rolledNumber}: Drew ${stageName} for Stickman #${rolledNumber}!`
+          `✏️ ${activePlayer.name} rolled ${targetRow}: Drew ${stageDescription} on Lane #${targetRow}!`
         ]
       };
       setGameState(nextState);
@@ -176,28 +210,18 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Case 3: Stickman Stage 2 -> Complete stickman and trigger Weapon Selection
-    if (targetCell.stage === 2) {
-      updatedCells[rolledNumber] = {
-        ...targetCell,
-        stage: 3
-      };
-      nextPlayers[currentTurn] = {
-        ...activePlayer,
-        cells: updatedCells
-      };
-
+    // Case 4: Stickman Stage 5 (Fully assembled body) -> Trigger Weapon Selection
+    if (targetCell.stage === 5) {
       sounds.playPencilScribble();
       const nextState: GameState = {
         ...currentState,
-        players: nextPlayers,
         lastRoll: rolledNumber,
         lastRollPlayer: playerId,
-        pendingRowTarget: rolledNumber,
+        pendingRowTarget: targetRow,
         phase: 'weapon_select',
         log: [
           ...currentState.log,
-          `${activePlayer.name} rolled ${rolledNumber}: Stickman #${rolledNumber} assembled! Select a weapon.`
+          `⚔️ ${activePlayer.name} rolled ${targetRow}: Stickman #${targetRow} is ready for battle! Select a weapon from the armory.`
         ]
       };
       setGameState(nextState);
@@ -205,17 +229,17 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Case 4: Stickman Stage 3 -> Already armed! Trigger Attack Phase!
-    if (targetCell.stage === 3) {
+    // Case 5: Stickman Stage 6 (Armed with weapon) -> Trigger Attack Phase!
+    if (targetCell.stage === 6) {
       const nextState: GameState = {
         ...currentState,
         lastRoll: rolledNumber,
         lastRollPlayer: playerId,
-        pendingRowTarget: rolledNumber,
+        pendingRowTarget: targetRow,
         phase: 'attack_target',
         log: [
           ...currentState.log,
-          `🎯 ${activePlayer.name} rolled ${rolledNumber}: Armed Stickman ready! Tap an opponent row to DESTROY!`
+          `🎯 ${activePlayer.name} rolled ${targetRow}: Armed Stickman ready! Tap an enemy lane to DESTROY!`
         ]
       };
       setGameState(nextState);
@@ -224,7 +248,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Weapon Pick Handler
+  // Weapon Pick Handler (Upgrades stickman from stage 5 to stage 6)
   const handleSelectWeapon = (weapon: WeaponType) => {
     const currentState = gameStateRef.current;
     const { currentTurn, players, pendingRowTarget } = currentState;
@@ -235,6 +259,7 @@ export const App: React.FC = () => {
 
     updatedCells[pendingRowTarget] = {
       ...updatedCells[pendingRowTarget],
+      stage: 6,
       weapon
     };
 
@@ -257,7 +282,7 @@ export const App: React.FC = () => {
       pendingRowTarget: null,
       log: [
         ...currentState.log,
-        `${activePlayer.name} equipped Stickman #${pendingRowTarget} with ${weaponInfo?.icon} ${weaponInfo?.name}!`
+        `🗡️ ${activePlayer.name} equipped Stickman #${pendingRowTarget} with ${weaponInfo?.icon} ${weaponInfo?.name}!`
       ]
     };
 

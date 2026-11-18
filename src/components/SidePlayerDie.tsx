@@ -1,5 +1,5 @@
 import React from 'react';
-import { PlayerId, PlayerState, RowIndex } from '../types/game';
+import { PlayerId, PlayerState } from '../types/game';
 
 interface SidePlayerDieProps {
   playerId: PlayerId;
@@ -7,7 +7,7 @@ interface SidePlayerDieProps {
   isCurrentTurn: boolean;
   isLocked: boolean;
   isRolling: boolean;
-  displayValue: RowIndex | string;
+  displayValue: number | string;
   onRoll: () => void;
   position: 'left' | 'right';
 }
@@ -23,6 +23,8 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
   position
 }) => {
   const isP1 = playerId === 'p1';
+  const isNumeric = typeof displayValue === 'number';
+  const isOdd = isNumeric && (displayValue as number) % 2 !== 0;
 
   return (
     <div
@@ -83,11 +85,22 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
           <span
             className="font-retro font-black text-3xl xs:text-4xl sm:text-5xl leading-none select-none drop-shadow-sm"
             style={{
-              color: isP1 ? '#1d4ed8' : '#dc2626'
+              color: isOdd ? '#d97706' : isP1 ? '#1d4ed8' : '#dc2626'
             }}
           >
             {displayValue}
           </span>
+
+          {/* Odd/Even Badge */}
+          {isNumeric && !isRolling && !isLocked && (
+            <span
+              className={`absolute -bottom-1.5 px-1 rounded border border-[#0f172a] text-[7px] font-retro font-black shadow-xs ${
+                isOdd ? 'bg-amber-400 text-slate-950' : 'bg-emerald-400 text-slate-950'
+              }`}
+            >
+              {isOdd ? 'ODD' : 'EVEN'}
+            </span>
+          )}
         </div>
 
         {/* Tactile Roll Button / Action Prompt */}

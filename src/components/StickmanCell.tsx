@@ -94,6 +94,25 @@ export const StickmanCell: React.FC<StickmanCellProps> = ({
     }
   };
 
+  const getStageLabel = () => {
+    switch (stage) {
+      case 1:
+        return 'HEAD';
+      case 2:
+        return 'FACE';
+      case 3:
+        return 'BODY';
+      case 4:
+        return 'ARMS';
+      case 5:
+        return 'READY';
+      case 6:
+        return weapon ? weapon.toUpperCase() : 'ARMED';
+      default:
+        return '';
+    }
+  };
+
   return (
     <div
       onClick={canBeAttacked ? onAttackClick : undefined}
@@ -111,7 +130,7 @@ export const StickmanCell: React.FC<StickmanCellProps> = ({
           ? `Click to attack Lane ${rowIndex}!`
           : isDestroyed
           ? `Lane ${rowIndex} is destroyed`
-          : `Lane ${rowIndex}: Stage ${stage}/3`
+          : `Lane ${rowIndex}: Stage ${stage}/6 (${getStageLabel()})`
       }
     >
       {/* Target Crosshair Badge */}
@@ -144,8 +163,8 @@ export const StickmanCell: React.FC<StickmanCellProps> = ({
           viewBox="0 0 100 100"
           className="h-full w-full max-h-full max-w-full aspect-square z-10 transition-transform duration-200 pointer-events-none animate-idle-doodle"
         >
-          {/* STAGE 1: Head & Face */}
-          <g className="stickman-head animate-draw-stroke">
+          {/* STAGE 1+: Head Circle Contour */}
+          {stage >= 1 && (
             <circle
               cx="48"
               cy="21"
@@ -154,36 +173,54 @@ export const StickmanCell: React.FC<StickmanCellProps> = ({
               stroke={inkColor}
               strokeWidth="2.8"
               strokeLinecap="round"
+              className="animate-draw-stroke"
             />
-            {isDestroyed ? (
-              // Knocked out dead X eyes
-              <>
-                <path d="M 43 18 L 47 22 M 47 18 L 43 22" stroke="#dc2626" strokeWidth="1.8" strokeLinecap="round" />
-                <path d="M 49 18 L 53 22 M 53 18 L 49 22" stroke="#dc2626" strokeWidth="1.8" strokeLinecap="round" />
-              </>
-            ) : (
-              // Fighter facial expressions
-              <>
-                <circle cx="45" cy="19" r="1.4" fill={inkColor} />
-                <circle cx="51" cy="19" r="1.4" fill={inkColor} />
-                <path
-                  d={stage === 3 ? "M 44 25 Q 48 29 52 25" : "M 45 24.5 Q 48 27.5 51 24.5"}
-                  fill="none"
-                  stroke={inkColor}
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                />
-              </>
-            )}
-          </g>
+          )}
 
-          {/* STAGE 2 & 3: Torso, Arms, and Legs */}
+          {/* STAGE 2+: Face Features (Eyes and Smile) */}
           {stage >= 2 && (
-            <g className="stickman-body animate-draw-stroke">
-              <line x1="48" y1="32" x2="48" y2="60" stroke={inkColor} strokeWidth="3.2" strokeLinecap="round" />
+            <g className="stickman-face animate-draw-stroke">
+              {isDestroyed ? (
+                // Knocked out dead X eyes
+                <>
+                  <path d="M 43 18 L 47 22 M 47 18 L 43 22" stroke="#dc2626" strokeWidth="1.8" strokeLinecap="round" />
+                  <path d="M 49 18 L 53 22 M 53 18 L 49 22" stroke="#dc2626" strokeWidth="1.8" strokeLinecap="round" />
+                </>
+              ) : (
+                // Living fighter eyes & smile
+                <>
+                  <circle cx="45" cy="19" r="1.4" fill={inkColor} />
+                  <circle cx="51" cy="19" r="1.4" fill={inkColor} />
+                  <path
+                    d={stage >= 6 ? "M 44 25 Q 48 29 52 25" : "M 45 24.5 Q 48 27.5 51 24.5"}
+                    fill="none"
+                    stroke={inkColor}
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </>
+              )}
+            </g>
+          )}
 
-              {/* Arms */}
-              {stage === 3 ? (
+          {/* STAGE 3+: Body / Spine Line */}
+          {stage >= 3 && (
+            <line
+              x1="48"
+              y1="32"
+              x2="48"
+              y2="60"
+              stroke={inkColor}
+              strokeWidth="3.2"
+              strokeLinecap="round"
+              className="animate-draw-stroke"
+            />
+          )}
+
+          {/* STAGE 4+: Arms / Hands */}
+          {stage >= 4 && (
+            <g className="stickman-arms animate-draw-stroke">
+              {stage >= 6 ? (
                 <path
                   d="M 48 40 L 34 50 M 48 40 L 60 46"
                   stroke={inkColor}
@@ -198,8 +235,12 @@ export const StickmanCell: React.FC<StickmanCellProps> = ({
                   strokeLinecap="round"
                 />
               )}
+            </g>
+          )}
 
-              {/* Legs */}
+          {/* STAGE 5+: Legs (Stickman Fully Assembled) */}
+          {stage >= 5 && (
+            <g className="stickman-legs animate-draw-stroke">
               <path
                 d="M 48 60 L 35 88 M 48 60 L 61 88"
                 stroke={inkColor}
@@ -209,8 +250,8 @@ export const StickmanCell: React.FC<StickmanCellProps> = ({
             </g>
           )}
 
-          {/* STAGE 3: Equipped Weapon */}
-          {stage >= 3 && renderWeapon(weapon)}
+          {/* STAGE 6: Equipped Weapon */}
+          {stage >= 6 && renderWeapon(weapon)}
         </svg>
       )}
 
@@ -220,12 +261,12 @@ export const StickmanCell: React.FC<StickmanCellProps> = ({
           <span
             className="px-1 py-0.2 rounded text-[7px] sm:text-[8px] font-retro font-black uppercase shadow-xs border"
             style={{
-              backgroundColor: stage === 3 ? '#fef08a' : '#f1f5f9',
-              color: stage === 3 ? '#854d0e' : '#475569',
+              backgroundColor: stage === 6 ? '#fef08a' : stage === 5 ? '#bbf7d0' : '#f1f5f9',
+              color: stage === 6 ? '#854d0e' : stage === 5 ? '#166534' : '#475569',
               borderColor: '#0f172a'
             }}
           >
-            {stage === 3 && weapon ? weapon.toUpperCase() : `LVL ${stage}`}
+            {getStageLabel()}
           </span>
         </div>
       )}

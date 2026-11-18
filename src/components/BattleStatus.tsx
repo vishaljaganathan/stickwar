@@ -14,8 +14,10 @@ export const BattleStatus: React.FC<BattleStatusProps> = ({
   reactionNotice,
   onSendReaction
 }) => {
-  const { currentTurn, phase, players } = gameState;
+  const { currentTurn, phase, players, lastRoll, lastRollPlayer } = gameState;
   const currentTurnPlayer = players[currentTurn];
+  const wasLastRollOdd = lastRoll !== null && lastRoll % 2 !== 0 && lastRollPlayer !== null;
+  const lastRoller = lastRollPlayer ? players[lastRollPlayer] : null;
 
   return (
     <div className="w-full max-w-5xl mx-auto px-1 shrink-0 select-none my-0.5 flex items-center justify-between gap-1.5">
@@ -45,6 +47,8 @@ export const BattleStatus: React.FC<BattleStatusProps> = ({
             ? `TARGETING PHASE: ${currentTurnPlayer.name} CHOOSE AN ENEMY ROW TO STRIKE!`
             : phase === 'weapon_select'
             ? `${currentTurnPlayer.name} IS SELECTING A WEAPON...`
+            : wasLastRollOdd && lastRoller
+            ? `⚠️ ${lastRoller.name} ROLLED ODD (${lastRoll})! MISSED! ${currentTurnPlayer.name}'S TURN!`
             : `${currentTurnPlayer.name}'S TURN: TAP YOUR DICE PEDESTAL!`}
         </span>
       </div>
