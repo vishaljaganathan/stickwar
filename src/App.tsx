@@ -527,7 +527,7 @@ export const App: React.FC = () => {
       <BattleStatus gameState={gameState} reactionNotice={reactionNotice} />
 
       {/* 3. Main Battlefield Area: Left P1 Die + Center Notebook + Right P2 Die */}
-      <div className="flex-1 min-h-0 w-full max-w-5xl mx-auto flex items-center justify-between my-0.5">
+      <div className="flex-1 min-h-0 w-full max-w-5xl mx-auto flex items-stretch justify-between my-0.5 h-full">
         {/* Left Side: Player 1 Die */}
         <SidePlayerDie
           playerId="p1"

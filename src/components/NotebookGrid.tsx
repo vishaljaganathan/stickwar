@@ -27,9 +27,9 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
   };
 
   return (
-    <div className="relative w-full max-w-4xl mx-auto flex-1 min-h-0 bg-[#fdfbf7] rounded-xl border-2 sm:border-3 border-gray-800 shadow-[3px_3px_0px_#1e293b] overflow-hidden notebook-paper flex flex-col justify-between my-1 select-none">
+    <div className="relative flex-1 min-h-0 h-full w-full bg-[#fdfbf7] rounded-xl border-2 sm:border-3 border-gray-800 shadow-[3px_3px_0px_#1e293b] overflow-hidden notebook-paper flex flex-col select-none">
       {/* Notebook Binder Rings (Left edge) */}
-      <div className="absolute left-1 sm:left-2 top-0 bottom-0 z-30 flex flex-col justify-around py-1 pointer-events-none">
+      <div className="absolute left-1 sm:left-2 top-0 bottom-0 z-30 flex flex-col justify-around py-2 pointer-events-none">
         {[...Array(6)].map((_, i) => (
           <div key={i} className="flex items-center">
             <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-gray-300 border border-gray-400 shadow-inner" />
@@ -43,7 +43,7 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
       <div className="absolute left-5.5 sm:left-10 top-0 bottom-0 w-0.5 bg-rose-300/40 z-20 pointer-events-none hidden sm:block" />
 
       {/* Main Table Grid Container */}
-      <div className="pl-7 sm:pl-12 pr-1.5 sm:pr-3 py-1 flex flex-col h-full justify-between">
+      <div className="pl-7 sm:pl-12 pr-1.5 sm:pr-3 py-1 flex flex-col h-full flex-1 min-h-0 justify-between">
         {/* Table Header Row */}
         <div className="grid grid-cols-12 gap-1 pb-1 border-b border-blue-400/80 font-hand font-bold text-gray-700 text-[11px] sm:text-xs shrink-0">
           <div className="col-span-2 text-center text-gray-500 font-mono">
@@ -65,8 +65,8 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
           </div>
         </div>
 
-        {/* 5 Rows for [0, 2, 4, 6, 8] - Distributes available height evenly */}
-        <div className="flex-1 min-h-0 flex flex-col justify-between divide-y divide-blue-200/60 py-0.5">
+        {/* 5 Rows - Grid Rows 5 guarantees exactly 20% vertical space per row */}
+        <div className="grid grid-rows-5 flex-1 min-h-0 h-full gap-1 py-0.5">
           {ROW_NUMBERS.map((rowNum) => {
             const isP1TurnRow = currentTurn === 'p1' && lastRoll === rowNum;
             const isP2TurnRow = currentTurn === 'p2' && lastRoll === rowNum;
@@ -78,7 +78,7 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
             const p2CanBeAttacked = canAttackTarget('p2', rowNum);
 
             return (
-              <div key={rowNum} className="grid grid-cols-12 gap-1 py-0.5 items-center flex-1 min-h-0">
+              <div key={rowNum} className="grid grid-cols-12 gap-1 items-stretch min-h-0 h-full">
                 {/* Column 1: Row Number Badge */}
                 <div className="col-span-2 flex items-center justify-center h-full">
                   <div
@@ -90,7 +90,7 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
                 </div>
 
                 {/* Column 2: Player 1 Cell */}
-                <div className="col-span-5 h-full">
+                <div className="col-span-5 h-full min-h-0">
                   <StickmanCell
                     rowIndex={rowNum}
                     cell={players.p1.cells[rowNum]}
@@ -104,7 +104,7 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
                 </div>
 
                 {/* Column 3: Player 2 Cell */}
-                <div className="col-span-5 h-full">
+                <div className="col-span-5 h-full min-h-0">
                   <StickmanCell
                     rowIndex={rowNum}
                     cell={players.p2.cells[rowNum]}
