@@ -43,7 +43,9 @@ export const BattleStatus: React.FC<BattleStatusProps> = ({
           {phase === 'attack_target' ? '⚔️' : phase === 'weapon_select' ? '🛠️' : '🎲'}
         </span>
         <span className="font-retro font-black text-xs sm:text-sm tracking-wide uppercase">
-          {phase === 'attack_target'
+          {phase === 'revealing_roll'
+            ? `🎲 ${lastRoller ? lastRoller.name : currentTurnPlayer.name} ROLLED ${lastRoll}!`
+            : phase === 'attack_target'
             ? `TARGETING PHASE: ${currentTurnPlayer.name} CHOOSE AN ENEMY ROW TO STRIKE!`
             : phase === 'weapon_select'
             ? `${currentTurnPlayer.name} IS SELECTING A WEAPON...`

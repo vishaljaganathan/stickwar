@@ -330,6 +330,32 @@ class SoundEngine {
       osc.stop(now + 0.26);
     } catch {}
   }
+
+  // Metallic clash / weapon deflection sound when two weapons collide
+  playClash() {
+    if (!this.enabled) return;
+    this.initCtx();
+    if (!this.ctx) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      [800, 1200, 1600].forEach((freq, idx) => {
+        const osc = this.ctx!.createOscillator();
+        const gain = this.ctx!.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.03);
+        osc.frequency.exponentialRampToValueAtTime(300, now + 0.3);
+
+        gain.gain.setValueAtTime(0.25, now + idx * 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+        osc.connect(gain);
+        gain.connect(this.ctx!.destination);
+        osc.start(now + idx * 0.03);
+        osc.stop(now + 0.36);
+      });
+    } catch {}
+  }
 }
 
 export const sounds = new SoundEngine();

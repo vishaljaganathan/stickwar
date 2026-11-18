@@ -27,7 +27,7 @@ export const WEAPONS: WeaponInfo[] = [
 // 2 = face (eyes + mouth)
 // 3 = body (torso)
 // 4 = hands (arms)
-// 5 = legs (complete stickman)
+// 5 = legs (complete stickman - READY)
 // 6 = armed (with weapon)
 export type StickmanStage = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -52,6 +52,7 @@ export type GameMode = 'local' | 'ai' | 'online_p2p' | 'online_firebase';
 export type GamePhase = 
   | 'turn_ready'       // Waiting for player to roll die
   | 'rolling'          // Die tumble animation in progress
+  | 'revealing_roll'   // Center screen big number pop-up for 1.2s before executing action
   | 'weapon_select'    // Active player just reached stage 5 and must choose weapon
   | 'attack_target'    // Stickman is armed (stage 6) and player must choose opponent row to destroy
   | 'animating_attack' // Projectile & scribble animation playing
@@ -65,12 +66,22 @@ export interface AttackAnimationData {
   weapon: WeaponType;
 }
 
+export interface RollAnnouncement {
+  playerId: PlayerId;
+  roll: DiceRoll;
+  type: 'odd_miss' | 'even_draw' | 'even_arm' | 'even_attack' | 'dead_roll';
+  title: string;
+  subtitle: string;
+  stageName?: string;
+}
+
 export interface GameState {
   mode: GameMode;
   currentTurn: PlayerId;
   phase: GamePhase;
   lastRoll: DiceRoll | null;
   lastRollPlayer: PlayerId | null;
+  rollAnnouncement: RollAnnouncement | null;
   pendingRowTarget: RowIndex | null;
   attackAnim: AttackAnimationData | null;
   log: string[];
@@ -98,9 +109,10 @@ export const createInitialGameState = (mode: GameMode = 'local'): GameState => (
   phase: 'turn_ready',
   lastRoll: null,
   lastRollPlayer: null,
+  rollAnnouncement: null,
   pendingRowTarget: null,
   attackAnim: null,
-  log: ['Match started! Roll the 10-sided die (0-9). Even numbers recruit stickmen, odd numbers skip turn!'],
+  log: ['Match started! Roll the 10-sided die. Even numbers assemble warriors, odd numbers skip turn!'],
   winner: null,
   players: {
     p1: createInitialPlayer('p1', 'Player 1', '#1e3a8a'), // Classic blue pen ink
