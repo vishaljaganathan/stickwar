@@ -11,7 +11,7 @@ import {
 } from './types/game';
 import { NotebookHeader } from './components/NotebookHeader';
 import { NotebookGrid } from './components/NotebookGrid';
-import { TwoPlayerDice } from './components/TwoPlayerDice';
+import { SidePlayerDie } from './components/SidePlayerDie';
 import { BattleStatus } from './components/BattleStatus';
 import { WeaponSelectModal } from './components/WeaponSelectModal';
 import { AttackAnimationOverlay } from './components/AttackAnimationOverlay';
@@ -33,8 +33,21 @@ export const App: React.FC = () => {
   const [isFirebaseConfigOpen, setIsFirebaseConfigOpen] = useState<boolean>(false);
   const [reactionNotice, setReactionNotice] = useState<{ emoji: string; from: string } | null>(null);
 
+  // Dice visual state
+  const [p1Display, setP1Display] = useState<RowIndex | string>('?');
+  const [p2Display, setP2Display] = useState<RowIndex | string>('?');
+  const [rollingPlayer, setRollingPlayer] = useState<PlayerId | null>(null);
+
   const gameStateRef = useRef(gameState);
   gameStateRef.current = gameState;
+
+  // Sync dice display with last rolls
+  useEffect(() => {
+    if (gameState.lastRoll !== null && gameState.lastRollPlayer) {
+      if (gameState.lastRollPlayer === 'p1') setP1Display(gameState.lastRoll);
+      if (gameState.lastRollPlayer === 'p2') setP2Display(gameState.lastRoll);
+    }
+  }, [gameState.lastRoll, gameState.lastRollPlayer]);
 
   // Check URL parameter for room code (?room=SM-XXXX)
   useEffect(() => {
@@ -66,8 +79,38 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Roll Handler
-  const handleRollForPlayer = (playerId: PlayerId, rolledNumber: RowIndex) => {
+  // Animated Die Roll Trigger
+  const triggerRollForPlayer = (playerId: PlayerId) => {
+    const currentState = gameStateRef.current;
+    if (currentState.currentTurn !== playerId) return;
+    if (currentState.phase !== 'turn_ready') return;
+    if (currentState.winner !== null) return;
+    if (rollingPlayer !== null) return;
+
+    sounds.playDiceRoll();
+    setRollingPlayer(playerId);
+
+    let counter = 0;
+    const interval = setInterval(() => {
+      const tempVal = ROW_NUMBERS[Math.floor(Math.random() * ROW_NUMBERS.length)];
+      if (playerId === 'p1') setP1Display(tempVal);
+      else setP2Display(tempVal);
+
+      counter++;
+      if (counter > 8) {
+        clearInterval(interval);
+        const finalVal = ROW_NUMBERS[Math.floor(Math.random() * ROW_NUMBERS.length)];
+        if (playerId === 'p1') setP1Display(finalVal);
+        else setP2Display(finalVal);
+
+        setRollingPlayer(null);
+        handleRollResolution(playerId, finalVal);
+      }
+    }, 85);
+  };
+
+  // Roll Resolution
+  const handleRollResolution = (playerId: PlayerId, rolledNumber: RowIndex) => {
     const currentState = gameStateRef.current;
     if (currentState.currentTurn !== playerId) return;
 
@@ -152,7 +195,7 @@ export const App: React.FC = () => {
         phase: 'weapon_select',
         log: [
           ...currentState.log,
-          `${activePlayer.name} rolled ${rolledNumber}: Stickman #${rolledNumber} is fully assembled! Select a weapon.`
+          `${activePlayer.name} rolled ${rolledNumber}: Stickman #${rolledNumber} assembled! Select a weapon.`
         ]
       };
       setGameState(nextState);
@@ -170,7 +213,7 @@ export const App: React.FC = () => {
         phase: 'attack_target',
         log: [
           ...currentState.log,
-          `🎯 ${activePlayer.name} rolled ${rolledNumber}: Armed Stickman ready! Click an opponent row to DESTROY!`
+          `🎯 ${activePlayer.name} rolled ${rolledNumber}: Armed Stickman ready! Tap an opponent row to DESTROY!`
         ]
       };
       setGameState(nextState);
@@ -229,7 +272,6 @@ export const App: React.FC = () => {
     const attackerCell = players[currentTurn].cells[attackerRow];
     const weaponType = attackerCell.weapon || 'sword';
 
-    // Play attack sound for the specific weapon
     sounds.playAttack(weaponType);
 
     const animData: AttackAnimationData = {
@@ -240,14 +282,13 @@ export const App: React.FC = () => {
       weapon: weaponType
     };
 
-    // Transition to animating_attack
     const nextState: GameState = {
       ...currentState,
       phase: 'animating_attack',
       attackAnim: animData,
       log: [
         ...currentState.log,
-        `💥 ${players[currentTurn].name}'s Stickman #${attackerRow} launched ${weaponType.toUpperCase()} at ${players[targetPlayerId].name}'s Row #${targetRow}!`
+        `💥 ${players[currentTurn].name}'s Stickman #${attackerRow} launched ${weaponType.toUpperCase()} at Row #${targetRow}!`
       ]
     };
 
@@ -255,7 +296,7 @@ export const App: React.FC = () => {
     broadcastState(nextState);
   };
 
-  // Step 2: Complete Attack (Resolves Damage & Turn after Animation)
+  // Step 2: Complete Attack
   const handleAnimationComplete = () => {
     const currentState = gameStateRef.current;
     const { attackAnim, players, currentTurn } = currentState;
@@ -263,7 +304,6 @@ export const App: React.FC = () => {
 
     const { targetPlayer, targetRow } = attackAnim;
 
-    // Play destruction scribble sound and impact
     sounds.playDestroyScribble();
 
     const victim = players[targetPlayer];
@@ -297,7 +337,7 @@ export const App: React.FC = () => {
       log: [
         ...currentState.log,
         `❌ ${players[targetPlayer].name}'s Row #${targetRow} has been DESTROYED!`,
-        ...(isWin ? [`🏆 VICTORY! ${players[currentTurn].name} wiped out the entire enemy army!`] : [])
+        ...(isWin ? [`🏆 VICTORY! ${players[currentTurn].name} conquered the notebook!`] : [])
       ]
     };
 
@@ -313,8 +353,7 @@ export const App: React.FC = () => {
 
     if (gameState.phase === 'turn_ready') {
       const timer = setTimeout(() => {
-        const roll = ROW_NUMBERS[Math.floor(Math.random() * ROW_NUMBERS.length)];
-        handleRollForPlayer('p2', roll);
+        triggerRollForPlayer('p2');
       }, 1000);
       return () => clearTimeout(timer);
     }
@@ -378,6 +417,8 @@ export const App: React.FC = () => {
   const handleResetGame = () => {
     const initial = createInitialGameState(gameState.mode);
     initial.roomCode = gameState.roomCode;
+    setP1Display('?');
+    setP2Display('?');
     setGameState(initial);
     broadcastState(initial);
   };
@@ -439,13 +480,14 @@ export const App: React.FC = () => {
 
   const isOnline = gameState.mode === 'online_p2p' || gameState.mode === 'online_firebase';
 
-  // Lock status calculation for P1 and P2 dice
+  // Player 1 Die Lock State
   const disabledP1 =
     gameState.phase !== 'turn_ready' ||
     gameState.winner !== null ||
     gameState.currentTurn !== 'p1' ||
     (isOnline && localPlayerId !== 'p1');
 
+  // Player 2 Die Lock State
   const disabledP2 =
     gameState.phase !== 'turn_ready' ||
     gameState.winner !== null ||
@@ -453,7 +495,6 @@ export const App: React.FC = () => {
     (gameState.mode === 'ai' && gameState.currentTurn === 'p2') ||
     (isOnline && localPlayerId !== 'p2');
 
-  // Permission to interact with weapon modal: only the player who earned it!
   const canInteractWithWeapon =
     gameState.phase === 'weapon_select' &&
     (gameState.mode !== 'ai' || gameState.currentTurn === 'p1') &&
@@ -485,29 +526,41 @@ export const App: React.FC = () => {
       {/* 2. Status & Scoreboard */}
       <BattleStatus gameState={gameState} reactionNotice={reactionNotice} />
 
-      {/* 3. 3-Column Grid */}
-      <NotebookGrid
-        gameState={gameState}
-        onAttackCell={handleAttackCell}
-        localPlayerId={isOnline ? localPlayerId : undefined}
-      />
+      {/* 3. Main Battlefield Area: Left P1 Die + Center Notebook + Right P2 Die */}
+      <div className="flex-1 min-h-0 w-full max-w-5xl mx-auto flex items-center justify-between my-0.5">
+        {/* Left Side: Player 1 Die */}
+        <SidePlayerDie
+          playerId="p1"
+          playerState={gameState.players.p1}
+          isCurrentTurn={gameState.currentTurn === 'p1'}
+          isLocked={disabledP1}
+          isRolling={rollingPlayer === 'p1'}
+          displayValue={p1Display}
+          onRoll={() => triggerRollForPlayer('p1')}
+          position="left"
+        />
 
-      {/* 4. Two Player Dice */}
-      <TwoPlayerDice
-        currentTurn={gameState.currentTurn}
-        lastRoll={gameState.lastRoll}
-        lastRollPlayer={gameState.lastRollPlayer}
-        phase={gameState.phase}
-        players={gameState.players}
-        disabledP1={disabledP1}
-        disabledP2={disabledP2}
-        onRollP1={(val) => handleRollForPlayer('p1', val)}
-        onRollP2={(val) => handleRollForPlayer('p2', val)}
-        localPlayerId={isOnline ? localPlayerId : undefined}
-        isOnline={isOnline}
-      />
+        {/* Center: The Notebook Grid */}
+        <NotebookGrid
+          gameState={gameState}
+          onAttackCell={handleAttackCell}
+          localPlayerId={isOnline ? localPlayerId : undefined}
+        />
 
-      {/* Dedicated Weapon Attack Cinematic Animation Overlay */}
+        {/* Right Side: Player 2 Die */}
+        <SidePlayerDie
+          playerId="p2"
+          playerState={gameState.players.p2}
+          isCurrentTurn={gameState.currentTurn === 'p2'}
+          isLocked={disabledP2}
+          isRolling={rollingPlayer === 'p2'}
+          displayValue={p2Display}
+          onRoll={() => triggerRollForPlayer('p2')}
+          position="right"
+        />
+      </div>
+
+      {/* Weapon Attack Animation Overlay */}
       <AttackAnimationOverlay
         animData={gameState.attackAnim}
         onAnimationComplete={handleAnimationComplete}
