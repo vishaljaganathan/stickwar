@@ -26,19 +26,19 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
 
   return (
     <div
-      className={`h-full flex flex-col items-center justify-center p-1 sm:p-2 transition-all duration-200 shrink-0 select-none ${
-        position === 'left' ? 'pr-0.5 sm:pr-1.5' : 'pl-0.5 sm:pl-1.5'
+      className={`h-full flex flex-col items-center justify-center p-0.5 sm:p-1.5 transition-all duration-200 shrink-0 select-none ${
+        position === 'left' ? 'pr-0.5 sm:pr-2' : 'pl-0.5 sm:pl-2'
       }`}
     >
-      {/* Side Die Tray / Card */}
+      {/* Side Die Tray Card */}
       <div
         onClick={() => !isLocked && onRoll()}
-        className={`w-13 xs:w-15 sm:w-20 md:w-24 flex flex-col items-center justify-center py-2 px-1 rounded-xl sm:rounded-2xl border-2 transition-all duration-200 cursor-pointer ${
+        className={`w-14 xs:w-16 sm:w-22 md:w-26 flex flex-col items-center justify-center py-2 px-1 sm:px-1.5 rounded-2xl border-2 sm:border-3 transition-all duration-200 cursor-pointer ${
           isCurrentTurn
             ? isP1
-              ? 'bg-blue-50/95 border-blue-600 shadow-[2px_2px_0px_#1d4ed8] ring-2 ring-blue-400/50 hover:bg-blue-100/80 active:scale-[0.97]'
-              : 'bg-rose-50/95 border-rose-600 shadow-[2px_2px_0px_#be123c] ring-2 ring-rose-400/50 hover:bg-rose-100/80 active:scale-[0.97]'
-            : 'bg-white/60 border-gray-300 opacity-60 cursor-not-allowed'
+              ? 'bg-blue-100/90 border-blue-900 shadow-[3px_3px_0px_#1e3a8a] ring-2 sm:ring-3 ring-blue-400 hover:scale-[1.03] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+              : 'bg-rose-100/90 border-rose-900 shadow-[3px_3px_0px_#881337] ring-2 sm:ring-3 ring-rose-400 hover:scale-[1.03] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none'
+            : 'bg-white/70 border-gray-400/80 shadow-[2px_2px_0px_#64748b] opacity-60 cursor-not-allowed'
         }`}
         title={
           isLocked
@@ -46,63 +46,66 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
             : `Click to Roll ${playerState.name}'s Die!`
         }
       >
-        {/* Player Name / Tag */}
-        <div className="flex items-center gap-1 mb-1 sm:mb-1.5 max-w-full px-0.5">
+        {/* Player Name Badge */}
+        <div className="flex items-center gap-1 mb-1 max-w-full px-0.5">
           <span
-            className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full shrink-0"
+            className="w-2 h-2 rounded-full shrink-0"
             style={{ backgroundColor: playerState.inkColor }}
           />
           <span
-            className="font-hand font-extrabold text-[10px] sm:text-xs truncate"
+            className="font-retro font-extrabold text-[10px] sm:text-xs truncate"
             style={{ color: playerState.inkColor }}
           >
-            {isP1 ? 'P1' : 'P2'}
+            {isP1 ? 'PLAYER 1' : 'PLAYER 2'}
           </span>
         </div>
 
-        {/* Tactile 3D Die Box */}
+        {/* 3D Embossed Retro Die Box */}
         <div
-          className={`relative w-10 h-10 xs:w-12 xs:h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-white rounded-xl sm:rounded-2xl border-2 sm:border-3 flex items-center justify-center shadow-xs transition-transform ${
-            isP1 ? 'border-blue-900' : 'border-rose-900'
-          } ${isRolling ? 'animate-die-tumble' : ''} ${
-            !isLocked && isCurrentTurn ? 'hover:scale-105 active:scale-95' : ''
+          className={`relative w-11 h-11 xs:w-12 xs:h-12 sm:w-15 sm:h-15 md:w-17 md:h-17 bg-white rounded-xl sm:rounded-2xl border-2 sm:border-3 border-[#0f172a] shadow-[2.5px_2.5px_0px_#0f172a] flex items-center justify-center transition-all ${
+            isRolling ? 'animate-die-tumble' : ''
+          } ${
+            !isLocked && isCurrentTurn ? 'hover:scale-105 active:scale-95 hover:shadow-[1px_1px_0px_#0f172a]' : ''
           }`}
         >
           {/* Lock Overlay */}
           {isLocked && (
-            <div className="absolute inset-0 bg-gray-900/25 backdrop-blur-[0.5px] rounded-xl sm:rounded-2xl flex items-center justify-center z-20">
-              <span className="text-xs sm:text-sm">🔒</span>
+            <div className="absolute inset-0 bg-slate-900/35 backdrop-blur-[0.5px] rounded-xl sm:rounded-2xl flex items-center justify-center z-20">
+              <span className="text-xs sm:text-base">🔒</span>
             </div>
           )}
 
-          {/* Die Face Number */}
+          {/* Paper texture pips on corners */}
+          <span className="absolute top-1 left-1.5 text-[8px] text-gray-300 font-mono hidden sm:inline">●</span>
+          <span className="absolute bottom-1 right-1.5 text-[8px] text-gray-300 font-mono hidden sm:inline">●</span>
+
+          {/* Die Face Digit */}
           <span
-            className="font-hand font-extrabold text-2xl xs:text-3xl sm:text-4xl leading-none select-none"
+            className="font-retro font-extrabold text-2xl xs:text-3xl sm:text-4xl leading-none select-none transition-transform"
             style={{
-              fontFamily: "'Architects Daughter', cursive",
-              color: isP1 ? '#1e3a8a' : '#881337'
+              color: isP1 ? '#1d4ed8' : '#dc2626'
             }}
           >
             {displayValue}
           </span>
         </div>
 
-        {/* Status Prompt */}
-        <div className="mt-1 sm:mt-1.5 text-center">
+        {/* Action Prompt Tag */}
+        <div className="mt-1.5 text-center w-full">
           {isLocked ? (
-            <span className="text-[9px] sm:text-[10px] font-mono font-bold text-gray-400">
+            <span className="text-[8px] sm:text-[9px] font-mono font-bold text-gray-500 uppercase tracking-wider block">
               LOCKED
             </span>
           ) : isRolling ? (
-            <span className="text-[9px] sm:text-[10px] font-mono font-bold text-amber-600 animate-pulse">
+            <span className="text-[8px] sm:text-[10px] font-retro font-bold text-amber-700 animate-pulse block">
               ROLLING...
             </span>
           ) : (
             <span
-              className="text-[9px] sm:text-[11px] font-hand font-bold animate-bounce block leading-tight"
-              style={{ color: isP1 ? '#1d4ed8' : '#be123c' }}
+              className="text-[9px] sm:text-xs font-retro font-black animate-bounce block leading-tight px-1 py-0.5 rounded-md bg-white border border-[#0f172a] shadow-xs"
+              style={{ color: isP1 ? '#1d4ed8' : '#dc2626' }}
             >
-              TAP DIE 🎲
+              ROLL 🎲
             </span>
           )}
         </div>

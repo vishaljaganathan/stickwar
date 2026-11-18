@@ -42,30 +42,29 @@ export const AttackAnimationOverlay: React.FC<AttackAnimationOverlayProps> = ({
   const isP1Attacker = animData.fromPlayer === 'p1';
 
   return (
-    <div className="fixed inset-0 z-50 pointer-events-none flex flex-col items-center justify-center overflow-hidden animate-fade-in p-2">
+    <div className="fixed inset-0 z-50 pointer-events-none flex flex-col items-center justify-center overflow-hidden animate-fade-in p-2 select-none">
       {/* Background Dim */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] transition-opacity" />
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px] transition-opacity" />
 
-      {/* Attack Announcement Banner */}
+      {/* Retro Attack Announcement Banner */}
       <div className="relative z-10 -mt-8 sm:-mt-14 mb-2 animate-bounce max-w-[95vw]">
-        <div className="px-3.5 sm:px-5 py-1.5 sm:py-2 rounded-2xl bg-[#fdfbf7] border-3 sm:border-4 border-gray-900 shadow-[4px_4px_0px_#1e293b] flex items-center gap-2 sm:gap-3">
-          <span className="text-2xl sm:text-4xl">{weaponInfo.icon}</span>
+        <div className="px-4 sm:px-6 py-2 rounded-2xl bg-[#fffefb] border-3 sm:border-4 border-[#0f172a] shadow-[6px_6px_0px_#0f172a] flex items-center gap-3">
+          <span className="text-3xl sm:text-4xl">{weaponInfo.icon}</span>
           <div>
             <div
-              className="font-extrabold text-base sm:text-2xl text-gray-900 uppercase tracking-wider leading-tight"
-              style={{ fontFamily: "'Architects Daughter', cursive" }}
+              className="font-retro font-black text-lg sm:text-2xl text-[#0f172a] uppercase tracking-wider leading-tight"
             >
-              {weaponInfo.name} ATTACK!
+              {weaponInfo.name} STRIKE!
             </div>
-            <div className="text-[11px] sm:text-sm font-hand font-bold text-gray-600">
-              {isP1Attacker ? 'Player 1' : 'Player 2'} (Row {animData.fromRow}) ➔ Row {animData.targetRow}
+            <div className="text-[11px] sm:text-xs font-retro font-bold text-slate-600">
+              {isP1Attacker ? 'PLAYER 1' : 'PLAYER 2'} (Row {animData.fromRow}) ➔ Row {animData.targetRow}
             </div>
           </div>
         </div>
       </div>
 
       {/* Dynamic Weapon Animation Stage */}
-      <div className="relative w-full max-w-xl h-40 sm:h-52 flex items-center justify-center">
+      <div className="relative w-full max-w-xl h-44 sm:h-56 flex items-center justify-center">
         {/* WEAPON 1: SWORD */}
         {animData.weapon === 'sword' && (
           <div className="relative w-full h-full flex items-center justify-center">
@@ -73,15 +72,15 @@ export const AttackAnimationOverlay: React.FC<AttackAnimationOverlayProps> = ({
               className={`absolute inset-0 transition-transform duration-300 flex items-center justify-center ${
                 phase === 'charging'
                   ? 'scale-75 -rotate-45 opacity-50'
-                  : 'scale-115 rotate-12 opacity-100'
+                  : 'scale-120 rotate-12 opacity-100'
               }`}
             >
               <svg viewBox="0 0 400 200" className="w-full h-full">
                 <path
                   d={isP1Attacker ? "M 50 180 Q 200 20 350 90" : "M 350 180 Q 200 20 50 90"}
                   fill="none"
-                  stroke="#1e293b"
-                  strokeWidth="7"
+                  stroke="#0f172a"
+                  strokeWidth="8"
                   strokeLinecap="round"
                   className="animate-draw-stroke"
                 />
@@ -89,10 +88,10 @@ export const AttackAnimationOverlay: React.FC<AttackAnimationOverlayProps> = ({
                   d={isP1Attacker ? "M 70 170 Q 200 35 340 100" : "M 330 170 Q 200 35 60 100"}
                   fill="none"
                   stroke="#3b82f6"
-                  strokeWidth="3.5"
+                  strokeWidth="4"
                   strokeLinecap="round"
                 />
-                <circle cx={isP1Attacker ? "320" : "80"} cy="100" r="14" fill="#facc15" className="animate-ping" />
+                <circle cx={isP1Attacker ? "320" : "80"} cy="100" r="16" fill="#facc15" className="animate-ping" />
               </svg>
             </div>
           </div>
@@ -109,14 +108,14 @@ export const AttackAnimationOverlay: React.FC<AttackAnimationOverlayProps> = ({
                   x2={isP1Attacker ? '360' : '40'}
                   y2="50"
                   stroke="#ef4444"
-                  strokeWidth="4"
+                  strokeWidth="5"
                   strokeDasharray="10 5"
                   className="animate-pulse"
                 />
               )}
             </svg>
             <div
-              className={`absolute transition-all duration-300 w-16 h-16 sm:w-20 sm:h-20 rounded-full border-3 border-rose-600 flex items-center justify-center ${
+              className={`absolute transition-all duration-300 w-18 h-18 sm:w-22 sm:h-22 rounded-full border-3 sm:border-4 border-rose-600 flex items-center justify-center ${
                 isP1Attacker ? 'right-6 sm:right-12' : 'left-6 sm:left-12'
               } ${phase === 'impact' ? 'scale-125 bg-rose-500/30' : 'scale-100 animate-spin'}`}
             >
@@ -125,7 +124,7 @@ export const AttackAnimationOverlay: React.FC<AttackAnimationOverlayProps> = ({
             </div>
             {phase === 'impact' && (
               <div
-                className={`absolute text-xl sm:text-2xl font-doodle font-extrabold text-rose-600 animate-ping ${
+                className={`absolute text-2xl sm:text-3xl font-retro font-black text-rose-600 animate-ping ${
                   isP1Attacker ? 'right-10 sm:right-16' : 'left-10 sm:left-16'
                 }`}
               >
@@ -144,18 +143,18 @@ export const AttackAnimationOverlay: React.FC<AttackAnimationOverlayProps> = ({
                   ? isP1Attacker ? 'left-6 scale-75' : 'right-6 scale-75'
                   : phase === 'projectile'
                   ? 'left-1/2 -translate-x-1/2 scale-110'
-                  : isP1Attacker ? 'right-8 sm:right-12 scale-130' : 'left-8 sm:left-12 scale-130'
+                  : isP1Attacker ? 'right-8 sm:right-12 scale-135' : 'left-8 sm:left-12 scale-135'
               }`}
             >
               {phase !== 'impact' ? (
                 <div className={`flex items-center gap-1 ${!isP1Attacker ? 'rotate-180' : ''}`}>
-                  <span className="text-2xl animate-pulse">💨</span>
-                  <span className="text-4xl sm:text-5xl">🚀</span>
+                  <span className="text-3xl animate-pulse">💨</span>
+                  <span className="text-5xl sm:text-6xl">🚀</span>
                 </div>
               ) : (
                 <div className="relative animate-bounce text-center">
-                  <div className="text-6xl sm:text-7xl animate-ping">💥</div>
-                  <div className="font-doodle font-extrabold text-lg sm:text-xl text-amber-900 -rotate-12 bg-yellow-300 px-2 py-0.5 rounded-lg border-2 border-gray-900 shadow mt-1">
+                  <div className="text-7xl sm:text-8xl animate-ping">💥</div>
+                  <div className="font-retro font-black text-xl sm:text-2xl text-[#0f172a] -rotate-12 bg-amber-300 px-3 py-1 rounded-xl border-3 border-[#0f172a] shadow mt-1">
                     KABOOM!!
                   </div>
                 </div>
@@ -173,16 +172,16 @@ export const AttackAnimationOverlay: React.FC<AttackAnimationOverlayProps> = ({
                   ? isP1Attacker ? 'left-6 scale-90' : 'right-6 scale-90'
                   : phase === 'projectile'
                   ? 'left-1/2 -translate-x-1/2 scale-110'
-                  : isP1Attacker ? 'right-8 sm:right-14 scale-120' : 'left-8 sm:left-14 scale-120'
+                  : isP1Attacker ? 'right-8 sm:right-14 scale-125' : 'left-8 sm:left-14 scale-125'
               }`}
             >
-              <div className={`flex items-center text-4xl sm:text-5xl ${!isP1Attacker ? 'rotate-180' : ''}`}>
+              <div className={`flex items-center text-5xl sm:text-6xl ${!isP1Attacker ? 'rotate-180' : ''}`}>
                 🏹
               </div>
             </div>
             {phase === 'impact' && (
               <div
-                className={`absolute text-xl sm:text-2xl font-doodle font-extrabold text-amber-900 animate-bounce ${
+                className={`absolute text-2xl sm:text-3xl font-retro font-black text-amber-900 animate-bounce ${
                   isP1Attacker ? 'right-6 sm:right-10' : 'left-6 sm:left-10'
                 }`}
               >
@@ -202,7 +201,7 @@ export const AttackAnimationOverlay: React.FC<AttackAnimationOverlayProps> = ({
                 x2={isP1Attacker ? '470' : '30'}
                 y2="50"
                 stroke="#06b6d4"
-                strokeWidth="10"
+                strokeWidth="12"
                 strokeLinecap="round"
                 className="animate-pulse"
               />
@@ -212,13 +211,13 @@ export const AttackAnimationOverlay: React.FC<AttackAnimationOverlayProps> = ({
                 x2={isP1Attacker ? '470' : '30'}
                 y2="50"
                 stroke="#facc15"
-                strokeWidth="4"
+                strokeWidth="5"
                 strokeLinecap="round"
               />
             </svg>
             {phase === 'impact' && (
               <div
-                className={`absolute text-xl sm:text-2xl font-doodle font-extrabold text-cyan-600 animate-ping ${
+                className={`absolute text-2xl sm:text-3xl font-retro font-black text-cyan-600 animate-ping ${
                   isP1Attacker ? 'right-8 sm:right-12' : 'left-8 sm:left-12'
                 }`}
               >

@@ -28,33 +28,32 @@ export const WeaponSelectModal: React.FC<WeaponSelectModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/50 backdrop-blur-sm animate-fade-in select-none">
-      <div className="relative w-full max-w-md bg-[#fdfbf7] rounded-3xl border-4 border-gray-900 shadow-[8px_8px_0px_#1e293b] p-5 sm:p-6 overflow-hidden">
-        {/* Notebook top ribbon */}
-        <div className="absolute top-0 left-0 right-0 h-3.5 bg-amber-400 border-b-2 border-gray-800" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm animate-fade-in select-none">
+      <div className="relative w-full max-w-md bg-[#fffefb] rounded-3xl border-3 sm:border-4 border-[#0f172a] shadow-[8px_8px_0px_#0f172a] p-5 sm:p-6 overflow-hidden">
+        {/* Retro Header Tape */}
+        <div className="absolute top-0 left-0 right-0 h-3.5 bg-amber-400 border-b-2 border-[#0f172a]" />
 
         <div className="mt-1 text-center">
-          <div className="inline-block px-3 py-0.5 bg-amber-100 border border-amber-300 rounded-full text-xs font-hand font-bold text-amber-900 mb-1.5">
-            Stickman Assembled! Row {rowIndex}
+          <div className="inline-block px-3 py-0.5 bg-amber-300 border-2 border-[#0f172a] rounded-full text-[11px] font-retro font-extrabold text-[#0f172a] mb-1.5 shadow-xs">
+            STICKMAN ASSEMBLED! ROW {rowIndex}
           </div>
           <h2
-            className="text-2xl sm:text-3xl font-extrabold text-gray-900 leading-tight"
-            style={{ fontFamily: "'Patrick Hand', cursive" }}
+            className="text-2xl sm:text-3xl font-retro font-extrabold text-[#0f172a] leading-tight uppercase tracking-wide"
           >
-            {canInteract ? 'Equip Your Stickman!' : `${playerName}'s Armory`}
+            {canInteract ? 'EQUIP YOUR STICKMAN!' : `${playerName}'S ARMORY`}
           </h2>
 
           {canInteract ? (
-            <p className="text-xs sm:text-sm font-hand text-gray-600 mt-1">
-              <span className="font-bold" style={{ color: playerColor }}>{playerName}</span>, choose a signature doodle weapon:
+            <p className="text-xs sm:text-sm font-hand font-bold text-slate-600 mt-0.5">
+              <span className="font-extrabold" style={{ color: playerColor }}>{playerName}</span>, choose your signature weapon:
             </p>
           ) : (
-            <div className="mt-2 p-3 rounded-xl bg-gray-100 border-2 border-dashed border-gray-400 flex flex-col items-center gap-1.5">
+            <div className="mt-2 p-3 rounded-2xl bg-amber-50 border-2 border-dashed border-[#0f172a] flex flex-col items-center gap-1.5">
               <span className="text-2xl animate-bounce">🔒</span>
-              <span className="font-hand font-bold text-sm text-gray-700">
-                Waiting for <strong style={{ color: playerColor }}>{playerName}</strong> to pick their weapon...
+              <span className="font-retro font-extrabold text-sm text-[#0f172a]">
+                Waiting for <strong style={{ color: playerColor }}>{playerName}</strong> to choose...
               </span>
-              <span className="text-xs text-gray-400 font-mono">You cannot choose for the opponent!</span>
+              <span className="text-[10px] text-slate-500 font-mono">You cannot choose for your opponent!</span>
             </div>
           )}
         </div>
@@ -66,29 +65,29 @@ export const WeaponSelectModal: React.FC<WeaponSelectModalProps> = ({
               key={w.id}
               onClick={() => handlePick(w.id)}
               disabled={!canInteract}
-              className={`flex items-center gap-3 p-2.5 rounded-xl border-2 transition-all text-left ${
+              className={`flex items-center gap-3 p-2.5 rounded-2xl border-2 transition-all text-left ${
                 canInteract
-                  ? 'border-gray-800 bg-white hover:bg-amber-100/60 active:scale-[0.98] shadow-[2px_2px_0px_#1e293b] cursor-pointer group'
-                  : 'border-gray-300 bg-gray-50 opacity-60 cursor-not-allowed shadow-none'
+                  ? 'border-[#0f172a] bg-white hover:bg-amber-100 active:translate-x-[2px] active:translate-y-[2px] shadow-[3px_3px_0px_#0f172a] cursor-pointer group'
+                  : 'border-slate-300 bg-slate-50 opacity-60 cursor-not-allowed shadow-none'
               }`}
             >
               <div
-                className={`w-9 h-9 rounded-lg border flex items-center justify-center text-xl shrink-0 ${
+                className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center text-2xl shrink-0 ${
                   canInteract
-                    ? 'bg-amber-200/60 border-gray-800 group-hover:scale-110 transition-transform'
-                    : 'bg-gray-200 border-gray-400'
+                    ? 'bg-amber-300 border-[#0f172a] group-hover:scale-110 transition-transform shadow-xs'
+                    : 'bg-slate-200 border-slate-400'
                 }`}
               >
                 {w.icon}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-hand font-bold text-gray-900 text-sm sm:text-base flex items-center justify-between">
+                <div className="font-retro font-extrabold text-[#0f172a] text-sm sm:text-base flex items-center justify-between">
                   <span className="truncate">{w.name}</span>
                   {canInteract && (
-                    <span className="text-xs text-amber-600 font-normal shrink-0">Equip →</span>
+                    <span className="text-xs text-amber-600 font-retro font-black shrink-0">EQUIP →</span>
                   )}
                 </div>
-                <div className="text-[11px] font-hand text-gray-500 truncate">
+                <div className="text-[11px] font-hand font-bold text-slate-500 truncate">
                   {w.doodleDesc}
                 </div>
               </div>

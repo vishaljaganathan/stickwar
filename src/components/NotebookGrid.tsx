@@ -27,46 +27,50 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
   };
 
   return (
-    <div className="relative flex-1 min-h-0 h-full w-full bg-[#fdfbf7] rounded-xl border-2 sm:border-3 border-gray-800 shadow-[3px_3px_0px_#1e293b] overflow-hidden notebook-paper flex flex-col select-none">
-      {/* Notebook Binder Rings (Left edge) */}
+    <div className="relative flex-1 min-h-0 h-full w-full bg-[#fffefb] rounded-2xl border-2 sm:border-3 border-[#0f172a] shadow-[4px_4px_0px_#0f172a] overflow-hidden notebook-paper flex flex-col select-none">
+      {/* Retro Chrome Binder Clips (Left edge) */}
       <div className="absolute left-1 sm:left-2 top-0 bottom-0 z-30 flex flex-col justify-around py-2 pointer-events-none">
         {[...Array(6)].map((_, i) => (
           <div key={i} className="flex items-center">
-            <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-gray-300 border border-gray-400 shadow-inner" />
-            <div className="w-1 h-0.5 sm:w-1.5 sm:h-1 -ml-0.5 bg-gray-400 rounded-xs" />
+            <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-slate-300 border-2 border-[#0f172a] shadow-inner" />
+            <div className="w-1.5 h-1 sm:w-2 sm:h-1.5 -ml-1 bg-slate-500 rounded-xs" />
           </div>
         ))}
       </div>
 
-      {/* Vertical Red Margin Lines */}
-      <div className="absolute left-5 sm:left-9 top-0 bottom-0 w-0.5 bg-rose-400/90 z-20 pointer-events-none" />
-      <div className="absolute left-5.5 sm:left-10 top-0 bottom-0 w-0.5 bg-rose-300/40 z-20 pointer-events-none hidden sm:block" />
+      {/* Retro Double Margin Line */}
+      <div className="absolute left-6 sm:left-10 top-0 bottom-0 w-0.5 bg-rose-400/90 z-20 pointer-events-none" />
+      <div className="absolute left-7 sm:left-11 top-0 bottom-0 w-0.5 bg-rose-300/40 z-20 pointer-events-none hidden sm:block" />
 
-      {/* Main Table Grid Container */}
-      <div className="pl-7 sm:pl-12 pr-1.5 sm:pr-3 py-1 flex flex-col h-full flex-1 min-h-0 justify-between">
+      {/* Main Table Container */}
+      <div className="pl-8 sm:pl-14 pr-2 sm:pr-4 py-1.5 flex flex-col h-full flex-1 min-h-0 justify-between">
         {/* Table Header Row */}
-        <div className="grid grid-cols-12 gap-1 pb-1 border-b border-blue-400/80 font-hand font-bold text-gray-700 text-[11px] sm:text-xs shrink-0">
-          <div className="col-span-2 text-center text-gray-500 font-mono">
-            Row
+        <div className="grid grid-cols-12 gap-1.5 pb-1 border-b-2 border-blue-400/80 font-retro font-extrabold text-[#0f172a] text-[11px] sm:text-xs shrink-0 items-center">
+          <div className="col-span-2 text-center text-slate-500 font-mono tracking-wider">
+            ROW #
           </div>
-          <div className="col-span-5 text-center flex items-center justify-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-blue-700 shrink-0" />
-            <span className="text-blue-900 font-bold truncate">{players.p1.name}</span>
+          <div className="col-span-5 text-center flex items-center justify-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-600 border border-[#0f172a] shrink-0" />
+            <span className="text-blue-900 font-extrabold tracking-wide truncate">{players.p1.name}</span>
             {currentTurn === 'p1' && (
-              <span className="text-[9px] text-amber-600 animate-pulse font-mono font-bold">● TURN</span>
+              <span className="px-1.5 py-0.2 rounded bg-amber-300 border border-[#0f172a] text-[9px] font-mono font-black animate-pulse shadow-xs">
+                TURN
+              </span>
             )}
           </div>
-          <div className="col-span-5 text-center flex items-center justify-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-rose-600 shrink-0" />
-            <span className="text-rose-900 font-bold truncate">{players.p2.name}</span>
+          <div className="col-span-5 text-center flex items-center justify-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-600 border border-[#0f172a] shrink-0" />
+            <span className="text-rose-900 font-extrabold tracking-wide truncate">{players.p2.name}</span>
             {currentTurn === 'p2' && (
-              <span className="text-[9px] text-amber-600 animate-pulse font-mono font-bold">● TURN</span>
+              <span className="px-1.5 py-0.2 rounded bg-amber-300 border border-[#0f172a] text-[9px] font-mono font-black animate-pulse shadow-xs">
+                TURN
+              </span>
             )}
           </div>
         </div>
 
-        {/* 5 Rows - Grid Rows 5 guarantees exactly 20% vertical space per row */}
-        <div className="grid grid-rows-5 flex-1 min-h-0 h-full gap-1 py-0.5">
+        {/* 5 Rows: Grid Rows 5 strictly guarantees equal vertical space per row */}
+        <div className="grid grid-rows-5 flex-1 min-h-0 h-full gap-1.5 py-0.5">
           {ROW_NUMBERS.map((rowNum) => {
             const isP1TurnRow = currentTurn === 'p1' && lastRoll === rowNum;
             const isP2TurnRow = currentTurn === 'p2' && lastRoll === rowNum;
@@ -78,12 +82,11 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
             const p2CanBeAttacked = canAttackTarget('p2', rowNum);
 
             return (
-              <div key={rowNum} className="grid grid-cols-12 gap-1 items-stretch min-h-0 h-full">
-                {/* Column 1: Row Number Badge */}
+              <div key={rowNum} className="grid grid-cols-12 gap-1.5 items-stretch min-h-0 h-full">
+                {/* Column 1: Retro Embossed Number Stamp */}
                 <div className="col-span-2 flex items-center justify-center h-full">
                   <div
-                    className="w-6 h-6 sm:w-8 sm:h-8 rounded-full border border-gray-700 bg-amber-50 flex items-center justify-center font-hand font-extrabold text-sm sm:text-lg text-gray-800 shadow-xs"
-                    style={{ fontFamily: "'Architects Daughter', cursive" }}
+                    className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl border-2 border-[#0f172a] bg-amber-300 flex items-center justify-center font-retro font-black text-sm sm:text-base text-[#0f172a] shadow-[1.5px_1.5px_0px_#0f172a] select-none"
                   >
                     {rowNum}
                   </div>
@@ -121,17 +124,17 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
           })}
         </div>
 
-        {/* Attack Phase Instruction Banner (Ultra Compact) */}
+        {/* Attack Phase Instruction Banner (Retro Warning Tape) */}
         {phase === 'attack_target' && (
-          <div className="py-0.5 px-1.5 rounded bg-rose-100 border border-rose-400 text-center animate-pulse shrink-0">
+          <div className="py-1 px-2 rounded-xl bg-amber-300 border-2 border-[#0f172a] text-center shadow-[2px_2px_0px_#0f172a] shrink-0 mt-0.5 animate-pulse">
             {isMyTurnToAttack ? (
-              <span className="font-hand font-bold text-rose-800 text-[11px] sm:text-xs">
-                💥 Stickman #{pendingRowTarget} is ready! Tap an alive opponent cell to DESTROY it!
+              <span className="font-retro font-black text-[#0f172a] text-xs sm:text-sm tracking-wide">
+                💥 STICKMAN #{pendingRowTarget} ARMED! CLICK AN ENEMY CELL TO OBLITERATE IT!
               </span>
             ) : (
-              <span className="font-hand font-bold text-rose-700 text-[11px] sm:text-xs flex items-center justify-center gap-1">
+              <span className="font-retro font-extrabold text-rose-900 text-xs sm:text-sm flex items-center justify-center gap-1.5">
                 <span>🛡️</span>
-                <span><strong>{currentTurnPlayer.name}</strong> is aiming their attack at your army...</span>
+                <span>INCOMING ATTACK! <strong>{currentTurnPlayer.name}</strong> is aiming at your army...</span>
               </span>
             )}
           </div>

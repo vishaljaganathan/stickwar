@@ -15,31 +15,45 @@
   }
 
   body {
-    background-color: #f3f0e8;
-    background-image: radial-gradient(#d5cfc4 1px, transparent 1px);
-    background-size: 24px 24px;
-    color: #1e293b;
-    font-family: 'Patrick Hand', cursive, sans-serif;
+    /* Vintage school desk wooden surface with subtle warmth */
+    background-color: #ede8dc;
+    background-image: 
+      radial-gradient(#d3cbba 1.5px, transparent 1.5px),
+      linear-gradient(to bottom, rgba(255,255,255,0.4), rgba(0,0,0,0.03));
+    background-size: 20px 20px, 100% 100%;
+    color: #0f172a;
+    font-family: 'Fredoka', 'Patrick Hand', sans-serif;
   }
 }
 
-/* Notebook paper texture styling */
+/* Modern-Retro Notebook Paper */
 .notebook-paper {
-  background-color: #fdfbf7;
-  /* Horizontal blue ruling lines spaced at 24px */
+  background-color: #fffefb;
+  /* Authentic cyan ruling lines with blueprint feel */
   background-image: repeating-linear-gradient(
     transparent,
-    transparent 23px,
-    #bfdbfe 23px,
-    #bfdbfe 24px
+    transparent 25px,
+    #dbeafe 25px,
+    #dbeafe 26px
   );
   box-shadow: 
-    0 10px 25px -5px rgba(0, 0, 0, 0.12),
-    0 8px 10px -6px rgba(0, 0, 0, 0.08),
-    inset 0 0 30px rgba(0, 0, 0, 0.02);
+    5px 5px 0px #0f172a,
+    0 12px 28px -6px rgba(15, 23, 42, 0.18);
 }
 
-/* Handwriting font utilities */
+/* Retro Washi Tape Effect */
+.washi-tape {
+  background: rgba(254, 240, 138, 0.85);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  border-left: 2px dashed rgba(0,0,0,0.15);
+  border-right: 2px dashed rgba(0,0,0,0.15);
+}
+
+/* Typography styles */
+.font-retro {
+  font-family: 'Fredoka', cursive, sans-serif;
+}
+
 .font-hand {
   font-family: 'Patrick Hand', cursive, sans-serif;
 }
@@ -48,15 +62,50 @@
   font-family: 'Architects Daughter', cursive, sans-serif;
 }
 
-.font-kalam {
-  font-family: 'Kalam', cursive, sans-serif;
+.font-pixel {
+  font-family: 'VT323', monospace;
+}
+
+.font-tech {
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+/* Neobrutalist buttons */
+.btn-retro {
+  border: 2px solid #0f172a;
+  box-shadow: 2.5px 2.5px 0px #0f172a;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-retro:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3.5px 3.5px 0px #0f172a;
+}
+
+.btn-retro:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0px 0px 0px #0f172a;
+}
+
+/* Idle Breathing Bob for Stickmen */
+@keyframes idleDoodle {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2px) rotate(0.8deg);
+  }
+}
+
+.animate-idle-doodle {
+  animation: idleDoodle 3s ease-in-out infinite;
 }
 
 /* Animations */
 @keyframes drawStroke {
   0% {
-    stroke-dashoffset: 100;
-    opacity: 0.2;
+    stroke-dashoffset: 120;
+    opacity: 0.1;
   }
   100% {
     stroke-dashoffset: 0;
@@ -65,40 +114,40 @@
 }
 
 .animate-draw-stroke {
-  stroke-dasharray: 100;
-  animation: drawStroke 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  stroke-dasharray: 120;
+  animation: drawStroke 0.45s cubic-bezier(0.35, 0, 0.25, 1) forwards;
 }
 
-@keyframes dieTumble {
+@keyframes dieTumble3D {
   0% {
-    transform: rotate(0deg) scale(1);
+    transform: perspective(300px) rotateX(0deg) rotateY(0deg) rotateZ(0deg) scale(1);
   }
   25% {
-    transform: rotate(-18deg) translateY(-6px) scale(1.08);
+    transform: perspective(300px) rotateX(45deg) rotateY(-35deg) rotateZ(-15deg) translateY(-8px) scale(1.1);
   }
   50% {
-    transform: rotate(22deg) translateY(-10px) scale(1.12);
+    transform: perspective(300px) rotateX(-50deg) rotateY(60deg) rotateZ(25deg) translateY(-12px) scale(1.15);
   }
   75% {
-    transform: rotate(-12deg) translateY(-3px) scale(1.04);
+    transform: perspective(300px) rotateX(30deg) rotateY(-40deg) rotateZ(-10deg) translateY(-4px) scale(1.05);
   }
   100% {
-    transform: rotate(0deg) translateY(0) scale(1);
+    transform: perspective(300px) rotateX(0deg) rotateY(0deg) rotateZ(0deg) translateY(0) scale(1);
   }
 }
 
 .animate-die-tumble {
-  animation: dieTumble 0.7s ease-in-out infinite;
+  animation: dieTumble3D 0.65s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 }
 
 @keyframes scribbleSlash {
   0% {
-    transform: scale(0.7) rotate(-15deg);
+    transform: scale(0.6) rotate(-20deg);
     opacity: 0;
   }
   50% {
-    transform: scale(1.1) rotate(6deg);
-    opacity: 0.9;
+    transform: scale(1.15) rotate(8deg);
+    opacity: 0.95;
   }
   100% {
     transform: scale(1) rotate(0deg);
@@ -107,16 +156,16 @@
 }
 
 .animate-scribble-slash {
-  animation: scribbleSlash 0.35s ease-out forwards;
+  animation: scribbleSlash 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
 }
 
 @keyframes weaponPop {
   0% {
-    transform: scale(0) rotate(-45deg);
+    transform: scale(0) rotate(-60deg);
     opacity: 0;
   }
-  60% {
-    transform: scale(1.2) rotate(10deg);
+  65% {
+    transform: scale(1.25) rotate(8deg);
     opacity: 1;
   }
   100% {
@@ -132,7 +181,7 @@
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: scale(0.96);
+    transform: scale(0.97);
   }
   to {
     opacity: 1;
@@ -141,5 +190,5 @@
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.2s ease-out forwards;
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
