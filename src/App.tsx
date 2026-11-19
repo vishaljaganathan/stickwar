@@ -464,6 +464,89 @@ export const App: React.FC = () => {
     }
   }, [gameState.mode, gameState.currentTurn, gameState.phase, gameState.winner]);
 
+  // Handle a player leaving or being kicked from the active match
+  const handlePlayerLeftOrKicked = (targetSlot: PlayerId | undefined, name: string, isKick: boolean) => {
+    const cur = gameStateRef.current;
+    if (cur.winner !== null) return;
+    if (cur.mode !== 'online_p2p' && cur.mode !== 'online_firebase') return;
+
+    // Find the slot if not explicitly provided
+    let slot = targetSlot;
+    if (!slot) {
+      const found = (Object.keys(cur.players) as PlayerId[]).find(
+        (pid) => cur.players[pid].name.toLowerCase() === (name || '').toLowerCase()
+      );
+      if (found) slot = found;
+    }
+    if (!slot) return;
+
+    // Check if player is already eliminated
+    const isAlreadyEliminated = ROW_NUMBERS.every((r) => cur.players[slot!].cells[r].isDestroyed);
+    if (isAlreadyEliminated) return;
+
+    sounds.playDeadRoll();
+
+    // Mark all 5 cells as destroyed (forfeited)
+    const updatedCells = { ...cur.players[slot].cells };
+    ROW_NUMBERS.forEach((r) => {
+      updatedCells[r] = {
+        ...updatedCells[r],
+        isDestroyed: true
+      };
+    });
+
+    const nextPlayers = {
+      ...cur.players,
+      [slot]: {
+        ...cur.players[slot],
+        cells: updatedCells
+      }
+    };
+
+    const actionText = isKick
+      ? `🥾 ${name} (${PLAYER_CONFIGS[slot]?.label || slot.toUpperCase()}) was kicked out by host!`
+      : `📡 ${name} (${PLAYER_CONFIGS[slot]?.label || slot.toUpperCase()}) left the match and forfeited!`;
+
+    // Advance turn if it was the leaving player's turn
+    let nextTurn = cur.currentTurn;
+    let nextPhase = cur.phase;
+    if (cur.currentTurn === slot) {
+      const tempState: GameState = { ...cur, players: nextPlayers };
+      nextTurn = getNextPlayer(slot, tempState);
+      nextPhase = 'turn_ready';
+    }
+
+    const stateWithForfeit: GameState = {
+      ...cur,
+      players: nextPlayers,
+      currentTurn: nextTurn,
+      phase: nextPhase,
+      pendingRowTarget: cur.currentTurn === slot ? null : cur.pendingRowTarget,
+      log: [...cur.log, actionText]
+    };
+
+    // Check if only 1 player remains -> Victory!
+    const victor = checkVictory(stateWithForfeit);
+    if (victor !== null) {
+      stateWithForfeit.winner = victor;
+      stateWithForfeit.phase = 'game_over';
+      stateWithForfeit.log.push(`🏆 ${stateWithForfeit.players[victor].name} wins by default! Opponents forfeited.`);
+      sounds.playVictory();
+    }
+
+    setGameState(stateWithForfeit);
+    broadcastState(stateWithForfeit);
+  };
+
+  const handleKickPlayer = (targetSlot: PlayerId) => {
+    const cur = gameStateRef.current;
+    const targetPlayer = cur.players[targetSlot];
+    if (!targetPlayer) return;
+
+    networkManager.kickPlayer(targetSlot, targetPlayer.name);
+    handlePlayerLeftOrKicked(targetSlot, targetPlayer.name, true);
+  };
+
   // Network Listeners (Multiplayer state, real-time name sync, match start, reactions)
   useEffect(() => {
     const unsubSync = networkManager.addListener('stateSync', (incomingState) => {
@@ -559,12 +642,32 @@ export const App: React.FC = () => {
       });
     });
 
-    const unsubDisc = networkManager.addListener('opponentDisconnected', (name) => {
+    const unsubDisc = networkManager.addListener('opponentDisconnected', (name, slot) => {
       setReactionNotice({
         emoji: '📡',
         from: `${name || 'Player'} Left Room`
       });
-      setTimeout(() => setReactionNotice(null), 3000);
+      setTimeout(() => setReactionNotice(null), 3500);
+
+      handlePlayerLeftOrKicked(slot, name || 'Player', false);
+    });
+
+    const unsubKicked = networkManager.addListener('playerKicked', (targetSlot, targetName) => {
+      if (targetSlot === localPlayerId) {
+        alert('You were removed from the match by the host.');
+        networkManager.disconnect();
+        setGameState(createInitialGameState('local', 2));
+        setIsMultiplayerOpen(false);
+        return;
+      }
+
+      setReactionNotice({
+        emoji: '🥾',
+        from: `${targetName} Was Kicked`
+      });
+      setTimeout(() => setReactionNotice(null), 3500);
+
+      handlePlayerLeftOrKicked(targetSlot, targetName, true);
     });
 
     return () => {
@@ -574,6 +677,7 @@ export const App: React.FC = () => {
       unsubReaction();
       unsubRoster();
       unsubDisc();
+      unsubKicked();
       networkManager.disconnect();
       firebaseSync.stopListening();
     };
@@ -756,6 +860,11 @@ export const App: React.FC = () => {
   };
 
   const isOnline = gameState.mode === 'online_p2p' || gameState.mode === 'online_firebase';
+  const actingHostId = (gameState.playerOrder || ['p1', 'p2']).find((pid) =>
+    ROW_NUMBERS.some((r) => !gameState.players[pid].cells[r].isDestroyed)
+  ) || 'p1';
+  const canKick = isOnline && localPlayerId === actingHostId && gameState.winner === null;
+  const canKickCurrentTurn = canKick && gameState.currentTurn !== localPlayerId;
 
   const canInteractWithWeapon =
     gameState.phase === 'weapon_select' &&
@@ -797,6 +906,8 @@ export const App: React.FC = () => {
         gameState={gameState}
         reactionNotice={reactionNotice}
         onSendReaction={handleSendReaction}
+        canKickCurrentTurn={canKickCurrentTurn}
+        onKickCurrentTurn={() => handleKickPlayer(gameState.currentTurn)}
       />
 
       {/* 3. Main Battlefield Area: Left Pedestals + Center Notebook + Right Pedestals */}
@@ -818,6 +929,9 @@ export const App: React.FC = () => {
             onRoll={() => triggerRollForPlayer('p1')}
             position="left"
             isCompact={hasP3}
+            canKick={canKick && localPlayerId !== 'p1'}
+            onKick={() => handleKickPlayer('p1')}
+            isEliminated={ROW_NUMBERS.every((r) => gameState.players.p1.cells[r].isDestroyed)}
           />
 
           {hasP3 && (
@@ -836,6 +950,9 @@ export const App: React.FC = () => {
               onRoll={() => triggerRollForPlayer('p3')}
               position="left"
               isCompact={true}
+              canKick={canKick && localPlayerId !== 'p3'}
+              onKick={() => handleKickPlayer('p3')}
+              isEliminated={ROW_NUMBERS.every((r) => gameState.players.p3.cells[r].isDestroyed)}
             />
           )}
         </div>
@@ -865,6 +982,9 @@ export const App: React.FC = () => {
             onRoll={() => triggerRollForPlayer('p2')}
             position="right"
             isCompact={hasP4}
+            canKick={canKick && localPlayerId !== 'p2'}
+            onKick={() => handleKickPlayer('p2')}
+            isEliminated={ROW_NUMBERS.every((r) => gameState.players.p2.cells[r].isDestroyed)}
           />
 
           {hasP4 && (
@@ -883,6 +1003,9 @@ export const App: React.FC = () => {
               onRoll={() => triggerRollForPlayer('p4')}
               position="right"
               isCompact={true}
+              canKick={canKick && localPlayerId !== 'p4'}
+              onKick={() => handleKickPlayer('p4')}
+              isEliminated={ROW_NUMBERS.every((r) => gameState.players.p4.cells[r].isDestroyed)}
             />
           )}
         </div>

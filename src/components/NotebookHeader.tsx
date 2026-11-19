@@ -81,19 +81,24 @@ export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
             const theme = getTheme(pid);
             const isTurn = currentTurn === pid;
             const isLocal = localPlayerId === pid;
+            const isEliminated = ROW_NUMBERS.every((r) => player.cells[r].isDestroyed);
 
             return (
               <div
                 key={pid}
                 className={`flex items-center gap-1 sm:gap-1.5 px-1 sm:px-2 py-0.5 rounded-lg sm:rounded-xl border transition-all ${
-                  isTurn ? theme.bgActive : theme.bgIdle
+                  isEliminated
+                    ? 'opacity-40 grayscale bg-slate-900/60 border-slate-800'
+                    : isTurn
+                    ? theme.bgActive
+                    : theme.bgIdle
                 }`}
               >
                 {/* Avatar */}
                 <div
                   className={`w-5 h-5 sm:w-7 sm:h-7 rounded sm:rounded-lg ${theme.avatarBg} border border-white flex items-center justify-center text-[10px] sm:text-xs shadow-xs shrink-0`}
                 >
-                  {theme.avatar}
+                  {isEliminated ? '💀' : theme.avatar}
                 </div>
 
                 <div className="min-w-0">
@@ -108,7 +113,12 @@ export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
                         YOU
                       </span>
                     )}
-                    {isTurn && (
+                    {isEliminated && (
+                      <span className="px-1 py-0 rounded bg-rose-950 text-rose-300 border border-rose-500/50 font-mono font-black text-[6px] sm:text-[7px] leading-tight shrink-0">
+                        OUT
+                      </span>
+                    )}
+                    {isTurn && !isEliminated && (
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping inline-block shrink-0" />
                     )}
                   </div>

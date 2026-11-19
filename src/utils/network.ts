@@ -11,7 +11,7 @@ export interface NetworkMessage {
 export interface NetworkPacket {
   senderId: string;
   senderRole: NetworkRole;
-  type: 'HELLO' | 'WELCOME' | 'SYNC_STATE' | 'NAME_UPDATE' | 'START_MATCH' | 'REACTION' | 'PING' | 'PONG' | 'DISCONNECT';
+  type: 'HELLO' | 'WELCOME' | 'SYNC_STATE' | 'NAME_UPDATE' | 'START_MATCH' | 'KICK' | 'REACTION' | 'PING' | 'PONG' | 'DISCONNECT';
   playerName?: string;
   payload?: any;
   timestamp: number;
@@ -30,7 +30,8 @@ type ListenerMap = {
   rosterUpdated: (roster: Record<string, PlayerRosterEntry>) => void;
   statusChange: (status: string) => void;
   opponentJoining: (guestName: string) => void;
-  opponentDisconnected: (name?: string) => void;
+  opponentDisconnected: (name?: string, slot?: PlayerId) => void;
+  playerKicked: (slot: PlayerId, name: string) => void;
   reaction: (emoji: string) => void;
   stateSync: (state: Partial<GameState>) => void;
 };
@@ -71,6 +72,7 @@ export class P2PNetworkManager {
     statusChange: [],
     opponentJoining: [],
     opponentDisconnected: [],
+    playerKicked: [],
     reaction: [],
     stateSync: []
   };
@@ -314,6 +316,25 @@ export class P2PNetworkManager {
     });
 
     this.emit('matchStarted', payload);
+  }
+
+  // Host or acting host kicks an inactive/left player
+  kickPlayer(targetSlot: PlayerId, targetName: string) {
+    if (!this.roomCode) return;
+    const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
+    const topic = this.getTopic(cleanCode);
+
+    this.publishPacket(topic, {
+      senderId: this.clientId,
+      senderRole: this.role,
+      type: 'KICK',
+      playerName: this.localPlayerName,
+      payload: {
+        targetSlot,
+        targetName
+      },
+      timestamp: Date.now()
+    });
   }
 
   // Connects via Paho MQTT over WebSocket Secure (WSS)
@@ -565,11 +586,20 @@ export class P2PNetworkManager {
       // --- CASE 7: DISCONNECT ---
       if (packet.type === 'DISCONNECT') {
         const leavingEntry = this.roster[packet.senderId];
+        const slot = leavingEntry?.id || (packet.payload?.slot as PlayerId | undefined);
         const name = leavingEntry?.name || packet.playerName || 'Player';
         delete this.roster[packet.senderId];
         this.emit('statusChange', `${name} left the room`);
-        this.emit('opponentDisconnected', name);
+        this.emit('opponentDisconnected', name, slot);
         this.emit('rosterUpdated', this.roster);
+      }
+
+      // --- CASE 8: KICK PLAYER ---
+      if (packet.type === 'KICK' && packet.payload) {
+        const { targetSlot, targetName } = packet.payload;
+        if (targetSlot) {
+          this.emit('playerKicked', targetSlot, targetName || 'Player');
+        }
       }
     } catch (e) {
       console.error('[Relay] Error parsing message payload:', e);
@@ -716,6 +746,9 @@ export class P2PNetworkManager {
             senderRole: this.role,
             type: 'DISCONNECT',
             playerName: this.localPlayerName,
+            payload: {
+              slot: this.myPlayerId
+            },
             timestamp: Date.now()
           });
         }

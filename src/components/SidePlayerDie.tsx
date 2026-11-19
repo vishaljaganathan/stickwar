@@ -11,6 +11,9 @@ interface SidePlayerDieProps {
   onRoll: () => void;
   position: 'left' | 'right';
   isCompact?: boolean;
+  canKick?: boolean;
+  onKick?: () => void;
+  isEliminated?: boolean;
 }
 
 export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
@@ -22,7 +25,10 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
   displayValue,
   onRoll,
   position,
-  isCompact = false
+  isCompact = false,
+  canKick = false,
+  onKick,
+  isEliminated = false
 }) => {
   const isNumeric = typeof displayValue === 'number';
   const isOdd = isNumeric && (displayValue as number) % 2 !== 0;
@@ -46,35 +52,56 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
     >
       {/* 3D Dice Battle Shrine / Pedestal */}
       <div
-        onClick={() => !isLocked && onRoll()}
+        onClick={() => !isLocked && !isEliminated && onRoll()}
         className={`w-13 xs:w-16 sm:w-22 md:w-26 flex flex-col items-center justify-center rounded-xl sm:rounded-2xl border-2 sm:border-3 transition-all duration-200 cursor-pointer ${
           isCompact ? 'py-1 px-1 my-0.5' : 'py-1 sm:py-2 px-1 my-1'
         } ${
-          isCurrentTurn
+          isEliminated
+            ? 'bg-slate-900/40 border-slate-800 opacity-40 cursor-not-allowed'
+            : isCurrentTurn
             ? `bg-gradient-to-b ${theme.bg} ring-1 sm:ring-3 hover:scale-[1.03] active:translate-y-0.5`
             : 'bg-slate-900/70 border-slate-700 opacity-50 cursor-not-allowed shadow-[0_4px_10px_rgba(0,0,0,0.5)]'
         }`}
         title={
-          isLocked
+          isEliminated
+            ? `${playerState.name} was defeated / forfeited`
+            : isLocked
             ? `${playerState.name}'s Die is Locked`
             : `Click to Roll ${playerState.name}'s Die!`
         }
       >
         {/* Commander Ribbon */}
-        <div className="flex items-center gap-0.5 sm:gap-1 mb-0.5 max-w-full px-1 py-0.2 rounded-full bg-black/40 border border-white/20">
-          <span
-            className="w-1.5 h-1.5 rounded-full shrink-0 shadow-xs"
-            style={{ backgroundColor: theme.dot }}
-          />
-          <span className="font-retro font-black text-[7px] xs:text-[8px] sm:text-[10px] text-white tracking-wider truncate max-w-[42px] xs:max-w-[55px] sm:max-w-[75px]">
-            {playerState.name || playerId.toUpperCase()}
-          </span>
+        <div className="flex items-center justify-between gap-0.5 sm:gap-1 mb-0.5 max-w-full px-1 py-0.2 rounded-full bg-black/40 border border-white/20">
+          <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
+            <span
+              className="w-1.5 h-1.5 rounded-full shrink-0 shadow-xs"
+              style={{ backgroundColor: theme.dot }}
+            />
+            <span className="font-retro font-black text-[7px] xs:text-[8px] sm:text-[10px] text-white tracking-wider truncate max-w-[36px] xs:max-w-[48px] sm:max-w-[65px]">
+              {playerState.name || playerId.toUpperCase()}
+            </span>
+          </div>
+          {canKick && onKick && !isEliminated && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onKick();
+              }}
+              className="shrink-0 text-[7px] text-rose-300 hover:text-white hover:bg-rose-600 rounded px-1 transition-all"
+              title={`Kick ${playerState.name} from match`}
+            >
+              🥾
+            </button>
+          )}
         </div>
 
         {/* 3D Tactile Die Cube */}
         <div
           className={`relative rounded-xl sm:rounded-2xl border-2 sm:border-3 border-[#0f172a] shadow-[0_4px_12px_rgba(0,0,0,0.35)] flex items-center justify-center transition-all ${
-            isLocked
+            isEliminated
+              ? 'bg-slate-200/50 opacity-60 cursor-not-allowed'
+              : isLocked
               ? 'bg-slate-100/90 opacity-80 cursor-not-allowed'
               : 'bg-gradient-to-br from-white to-slate-100 hover:scale-105 active:scale-95'
           } ${
@@ -84,9 +111,9 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
           } ${isRolling ? 'animate-die-tumble' : ''}`}
         >
           {/* Subtle Corner Lock Pin */}
-          {isLocked && (
+          {(isLocked || isEliminated) && (
             <span className="absolute -top-1.5 -right-1.5 text-[10px] sm:text-xs z-20 select-none filter drop-shadow">
-              🔒
+              {isEliminated ? '💀' : '🔒'}
             </span>
           )}
 
@@ -94,20 +121,20 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
           <span className="absolute top-0.5 left-1 text-[6px] text-slate-300 font-mono hidden sm:inline">✦</span>
           <span className="absolute bottom-0.5 right-1 text-[6px] text-slate-300 font-mono hidden sm:inline">✦</span>
 
-          {/* Die Digit (Always clearly visible showing the last rolled number) */}
+          {/* Die Digit (Always clearly visible showing the last rolled number or skull) */}
           <span
             className={`font-retro font-black leading-none select-none drop-shadow-sm ${
               isCompact ? 'text-xl xs:text-2xl sm:text-3xl' : 'text-2xl xs:text-3xl sm:text-4xl md:text-5xl'
             }`}
             style={{
-              color: isOdd ? '#d97706' : theme.text
+              color: isEliminated ? '#94a3b8' : isOdd ? '#d97706' : theme.text
             }}
           >
-            {displayValue}
+            {isEliminated ? '💀' : displayValue}
           </span>
 
           {/* Odd/Even Badge */}
-          {isNumeric && !isRolling && (
+          {isNumeric && !isRolling && !isEliminated && (
             <span
               className={`absolute -bottom-1 px-0.5 sm:px-1 rounded border border-[#0f172a] text-[6px] sm:text-[7px] font-retro font-black shadow-xs ${
                 isOdd ? 'bg-amber-400 text-slate-950' : 'bg-emerald-400 text-slate-950'
@@ -120,7 +147,11 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
 
         {/* Tactile Roll Button / Action Prompt */}
         <div className="mt-1 w-full text-center">
-          {isLocked ? (
+          {isEliminated ? (
+            <span className="text-[6px] sm:text-[8px] font-mono font-bold text-rose-400 uppercase tracking-widest block">
+              OUT
+            </span>
+          ) : isLocked ? (
             <span className="text-[6px] sm:text-[8px] font-mono font-bold text-slate-400 uppercase tracking-widest block">
               WAIT
             </span>

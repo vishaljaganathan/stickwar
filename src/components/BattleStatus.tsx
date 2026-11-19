@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { GameState } from '../types/game';
 
 interface BattleStatusProps {
   gameState: GameState;
   reactionNotice?: { emoji: string; from: string } | null;
   onSendReaction?: (reaction: string) => void;
+  canKickCurrentTurn?: boolean;
+  onKickCurrentTurn?: () => void;
 }
 
 const QUICK_EMOJIS = ['💥', '🎯', '💀', '🔥', '🏆', '😱'];
@@ -12,12 +14,27 @@ const QUICK_EMOJIS = ['💥', '🎯', '💀', '🔥', '🏆', '😱'];
 export const BattleStatus: React.FC<BattleStatusProps> = ({
   gameState,
   reactionNotice,
-  onSendReaction
+  onSendReaction,
+  canKickCurrentTurn = false,
+  onKickCurrentTurn
 }) => {
   const { currentTurn, phase, players, lastRoll, lastRollPlayer } = gameState;
   const currentTurnPlayer = players[currentTurn];
   const wasLastRollOdd = lastRoll !== null && lastRoll % 2 !== 0 && lastRollPlayer !== null;
   const lastRoller = lastRollPlayer ? players[lastRollPlayer] : null;
+
+  const [confirmKick, setConfirmKick] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (confirmKick) {
+      const timer = setTimeout(() => setConfirmKick(false), 4500);
+      return () => clearTimeout(timer);
+    }
+  }, [confirmKick]);
+
+  useEffect(() => {
+    setConfirmKick(false);
+  }, [currentTurn]);
 
   return (
     <div className="w-full max-w-5xl mx-auto px-0.5 sm:px-1 shrink-0 select-none my-0.5 flex items-center justify-between gap-1 sm:gap-1.5">
@@ -58,6 +75,32 @@ export const BattleStatus: React.FC<BattleStatusProps> = ({
             : `${currentTurnPlayer.name}'S TURN: ROLL YOUR DIE!`}
         </span>
       </div>
+
+      {/* Host Kick Inactive Player Option */}
+      {canKickCurrentTurn && onKickCurrentTurn && (
+        <button
+          type="button"
+          onClick={() => {
+            if (confirmKick) {
+              onKickCurrentTurn();
+              setConfirmKick(false);
+            } else {
+              setConfirmKick(true);
+            }
+          }}
+          className={`shrink-0 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg sm:rounded-xl border sm:border-2 font-retro font-black text-[9px] sm:text-xs flex items-center gap-1 transition-all cursor-pointer shadow-xs ${
+            confirmKick
+              ? 'bg-rose-600 hover:bg-rose-500 text-white border-white animate-pulse scale-102 ring-2 ring-rose-400'
+              : 'bg-amber-400 hover:bg-amber-300 text-slate-950 border-[#0f172a] hover:scale-103'
+          }`}
+          title={confirmKick ? `Click to kick ${currentTurnPlayer.name}` : `Kick inactive player so match can continue`}
+        >
+          <span className="text-xs sm:text-sm">🥾</span>
+          <span className="truncate max-w-[110px] xs:max-w-none">
+            {confirmKick ? `CONFIRM KICK?` : `KICK INACTIVE`}
+          </span>
+        </button>
+      )}
 
       {/* Quick Reaction Emotes */}
       {onSendReaction && (
