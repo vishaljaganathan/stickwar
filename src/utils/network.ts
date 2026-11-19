@@ -11,7 +11,7 @@ export interface NetworkMessage {
 export interface NetworkPacket {
   senderId: string;
   senderRole: NetworkRole;
-  type: 'HELLO' | 'WELCOME' | 'SYNC_STATE' | 'NAME_UPDATE' | 'START_MATCH' | 'KICK' | 'REACTION' | 'PING' | 'PONG' | 'DISCONNECT';
+  type: 'HELLO' | 'WELCOME' | 'SYNC_STATE' | 'NAME_UPDATE' | 'START_MATCH' | 'KICK' | 'REACTION' | 'VOICE_SIGNAL' | 'PING' | 'PONG' | 'DISCONNECT';
   playerName?: string;
   payload?: any;
   timestamp: number;
@@ -32,6 +32,7 @@ type ListenerMap = {
   opponentJoining: (guestName: string) => void;
   opponentDisconnected: (name?: string, slot?: PlayerId) => void;
   playerKicked: (slot: PlayerId, name: string) => void;
+  voiceSignal: (payload: any) => void;
   reaction: (emoji: string) => void;
   stateSync: (state: Partial<GameState>) => void;
 };
@@ -73,6 +74,7 @@ export class P2PNetworkManager {
     opponentJoining: [],
     opponentDisconnected: [],
     playerKicked: [],
+    voiceSignal: [],
     reaction: [],
     stateSync: []
   };
@@ -333,6 +335,22 @@ export class P2PNetworkManager {
         targetSlot,
         targetName
       },
+      timestamp: Date.now()
+    });
+  }
+
+  // Send WebRTC voice chat signaling packets
+  sendVoiceSignal(payload: any) {
+    if (!this.roomCode) return;
+    const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
+    const topic = this.getTopic(cleanCode);
+
+    this.publishPacket(topic, {
+      senderId: this.clientId,
+      senderRole: this.role,
+      type: 'VOICE_SIGNAL',
+      playerName: this.localPlayerName,
+      payload,
       timestamp: Date.now()
     });
   }
@@ -600,6 +618,11 @@ export class P2PNetworkManager {
         if (targetSlot) {
           this.emit('playerKicked', targetSlot, targetName || 'Player');
         }
+      }
+
+      // --- CASE 9: VOICE SIGNAL ---
+      if (packet.type === 'VOICE_SIGNAL' && packet.payload) {
+        this.emit('voiceSignal', packet.payload);
       }
     } catch (e) {
       console.error('[Relay] Error parsing message payload:', e);

@@ -1,5 +1,6 @@
 import React from 'react';
 import { GameMode, PlayerId, PlayerState, ROW_NUMBERS, PLAYER_CONFIGS } from '../types/game';
+import { VoiceChatBar } from './VoiceChatBar';
 
 interface NotebookHeaderProps {
   mode: GameMode;
@@ -15,6 +16,8 @@ interface NotebookHeaderProps {
   currentTurn: PlayerId;
   lastLogEntry: string;
   localPlayerId?: PlayerId | null;
+  speakingSlots?: Record<PlayerId, boolean>;
+  mutedSlots?: Record<PlayerId, boolean>;
 }
 
 export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
@@ -30,7 +33,9 @@ export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
   playerOrder = ['p1', 'p2'],
   currentTurn,
   lastLogEntry,
-  localPlayerId
+  localPlayerId,
+  speakingSlots = { p1: false, p2: false, p3: false, p4: false },
+  mutedSlots = { p1: false, p2: false, p3: false, p4: false }
 }) => {
   const getTheme = (id: PlayerId) => {
     switch (id) {
@@ -96,7 +101,9 @@ export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
               >
                 {/* Avatar */}
                 <div
-                  className={`w-5 h-5 sm:w-7 sm:h-7 rounded sm:rounded-lg ${theme.avatarBg} border border-white flex items-center justify-center text-[10px] sm:text-xs shadow-xs shrink-0`}
+                  className={`w-5 h-5 sm:w-7 sm:h-7 rounded sm:rounded-lg ${theme.avatarBg} border border-white flex items-center justify-center text-[10px] sm:text-xs shadow-xs shrink-0 transition-transform ${
+                    speakingSlots[pid] ? 'ring-2 ring-emerald-400 animate-pulse scale-105' : ''
+                  }`}
                 >
                   {isEliminated ? '💀' : theme.avatar}
                 </div>
@@ -108,6 +115,16 @@ export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
                     >
                       {player.name}
                     </span>
+                    {speakingSlots[pid] && (
+                      <span className="text-[8px] animate-bounce shrink-0" title="Speaking">
+                        🎙️
+                      </span>
+                    )}
+                    {mutedSlots[pid] && !speakingSlots[pid] && (
+                      <span className="text-[7px] text-slate-400 shrink-0" title="Muted">
+                        🔇
+                      </span>
+                    )}
                     {isLocal && (
                       <span className="px-1 py-0 rounded bg-emerald-500 text-slate-950 font-mono font-black text-[6px] sm:text-[7px] leading-tight shrink-0">
                         YOU
@@ -152,6 +169,13 @@ export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
 
         {/* COMPACT MENU BUTTONS */}
         <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 ml-0.5">
+          {/* Live WebRTC Voice Chat Widget */}
+          <VoiceChatBar
+            isOnline={mode === 'online_p2p' || mode === 'online_firebase'}
+            localPlayerId={localPlayerId || 'p1'}
+            players={players}
+          />
+
           <button
             onClick={onOpenCreateRoom}
             className="game-btn px-1.5 py-0.5 sm:px-2 sm:py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-retro font-black rounded-md sm:rounded-lg text-[9px] sm:text-xs flex items-center gap-0.5 shadow-xs"

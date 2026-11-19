@@ -27,6 +27,7 @@ import { FirebaseConfigModal } from './components/FirebaseConfigModal';
 import { sounds } from './utils/audio';
 import { networkManager } from './utils/network';
 import { firebaseSync } from './utils/firebaseSync';
+import { voiceManager, VoiceState } from './utils/voiceChat';
 
 export const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(() => createInitialGameState('local', 2));
@@ -38,6 +39,14 @@ export const App: React.FC = () => {
   const [isFirebaseConfigOpen, setIsFirebaseConfigOpen] = useState<boolean>(false);
   const [reactionNotice, setReactionNotice] = useState<{ emoji: string; from: string } | null>(null);
   const [initialRoomCode, setInitialRoomCode] = useState<string>('');
+  const [voiceState, setVoiceState] = useState<VoiceState>(() => voiceManager.getState());
+
+  useEffect(() => {
+    const unsub = voiceManager.subscribe((next) => {
+      setVoiceState(next);
+    });
+    return () => unsub();
+  }, []);
 
   // Dice visual state for each of the 4 players (can show 0-9 or '?')
   const [diceDisplays, setDiceDisplays] = useState<Record<PlayerId, number | string>>({
@@ -678,6 +687,7 @@ export const App: React.FC = () => {
       unsubRoster();
       unsubDisc();
       unsubKicked();
+      voiceManager.leaveVoice();
       networkManager.disconnect();
       firebaseSync.stopListening();
     };
@@ -899,6 +909,8 @@ export const App: React.FC = () => {
         currentTurn={gameState.currentTurn}
         lastLogEntry={gameState.log[gameState.log.length - 1] || 'Battle ready! Roll to recruit stickmen.'}
         localPlayerId={localPlayerId}
+        speakingSlots={voiceState.speakingSlots}
+        mutedSlots={voiceState.mutedSlots}
       />
 
       {/* 2. Tactical Status & Emote Ribbon */}
@@ -932,6 +944,8 @@ export const App: React.FC = () => {
             canKick={canKick && localPlayerId !== 'p1'}
             onKick={() => handleKickPlayer('p1')}
             isEliminated={ROW_NUMBERS.every((r) => gameState.players.p1.cells[r].isDestroyed)}
+            isSpeaking={voiceState.speakingSlots.p1}
+            isVoiceMuted={voiceState.mutedSlots.p1}
           />
 
           {hasP3 && (
@@ -953,6 +967,8 @@ export const App: React.FC = () => {
               canKick={canKick && localPlayerId !== 'p3'}
               onKick={() => handleKickPlayer('p3')}
               isEliminated={ROW_NUMBERS.every((r) => gameState.players.p3.cells[r].isDestroyed)}
+              isSpeaking={voiceState.speakingSlots.p3}
+              isVoiceMuted={voiceState.mutedSlots.p3}
             />
           )}
         </div>
@@ -985,6 +1001,8 @@ export const App: React.FC = () => {
             canKick={canKick && localPlayerId !== 'p2'}
             onKick={() => handleKickPlayer('p2')}
             isEliminated={ROW_NUMBERS.every((r) => gameState.players.p2.cells[r].isDestroyed)}
+            isSpeaking={voiceState.speakingSlots.p2}
+            isVoiceMuted={voiceState.mutedSlots.p2}
           />
 
           {hasP4 && (
@@ -1006,6 +1024,8 @@ export const App: React.FC = () => {
               canKick={canKick && localPlayerId !== 'p4'}
               onKick={() => handleKickPlayer('p4')}
               isEliminated={ROW_NUMBERS.every((r) => gameState.players.p4.cells[r].isDestroyed)}
+              isSpeaking={voiceState.speakingSlots.p4}
+              isVoiceMuted={voiceState.mutedSlots.p4}
             />
           )}
         </div>

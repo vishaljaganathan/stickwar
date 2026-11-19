@@ -14,6 +14,8 @@ interface SidePlayerDieProps {
   canKick?: boolean;
   onKick?: () => void;
   isEliminated?: boolean;
+  isSpeaking?: boolean;
+  isVoiceMuted?: boolean;
 }
 
 export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
@@ -28,7 +30,9 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
   isCompact = false,
   canKick = false,
   onKick,
-  isEliminated = false
+  isEliminated = false,
+  isSpeaking = false,
+  isVoiceMuted = false
 }) => {
   const isNumeric = typeof displayValue === 'number';
   const isOdd = isNumeric && (displayValue as number) % 2 !== 0;
@@ -71,15 +75,23 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
         }
       >
         {/* Commander Ribbon */}
-        <div className="flex items-center justify-between gap-0.5 sm:gap-1 mb-0.5 max-w-full px-1 py-0.2 rounded-full bg-black/40 border border-white/20">
+        <div
+          className={`flex items-center justify-between gap-0.5 sm:gap-1 mb-0.5 max-w-full px-1 py-0.2 rounded-full border transition-all ${
+            isSpeaking
+              ? 'bg-emerald-950/90 border-emerald-400 ring-1 ring-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
+              : 'bg-black/40 border-white/20'
+          }`}
+        >
           <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
             <span
-              className="w-1.5 h-1.5 rounded-full shrink-0 shadow-xs"
-              style={{ backgroundColor: theme.dot }}
+              className={`w-1.5 h-1.5 rounded-full shrink-0 shadow-xs ${isSpeaking ? 'bg-emerald-400 animate-ping' : ''}`}
+              style={{ backgroundColor: isSpeaking ? '#34d399' : theme.dot }}
             />
             <span className="font-retro font-black text-[7px] xs:text-[8px] sm:text-[10px] text-white tracking-wider truncate max-w-[36px] xs:max-w-[48px] sm:max-w-[65px]">
               {playerState.name || playerId.toUpperCase()}
             </span>
+            {isSpeaking && <span className="text-[7px] xs:text-[8px] shrink-0 animate-bounce">🎙️</span>}
+            {isVoiceMuted && !isSpeaking && <span className="text-[6px] xs:text-[7px] text-slate-400 shrink-0">🔇</span>}
           </div>
           {canKick && onKick && !isEliminated && (
             <button
