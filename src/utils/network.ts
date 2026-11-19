@@ -435,8 +435,8 @@ export class P2PNetworkManager {
     });
   }
 
-  // Send WebRTC voice chat signaling packets
-  sendVoiceSignal(payload: any) {
+  // Send WebRTC / VoIP voice chat signaling packets
+  sendVoiceSignal(payload: any, qos: 0 | 1 = 1) {
     if (!this.roomCode) return;
     const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
     const topic = this.getTopic(cleanCode);
@@ -448,7 +448,7 @@ export class P2PNetworkManager {
       playerName: this.localPlayerName,
       payload,
       timestamp: Date.now()
-    });
+    }, false, qos);
   }
 
   // Connects via Paho MQTT over WebSocket Secure (WSS)
@@ -749,13 +749,13 @@ export class P2PNetworkManager {
     }
   }
 
-  // High-reliability publishing via Paho MQTT with QoS 1
-  private publishPacket(topic: string, packet: NetworkPacket, retained: boolean = false) {
+  // High-reliability publishing via Paho MQTT with selectable QoS (0 for audio stream, 1 for control)
+  private publishPacket(topic: string, packet: NetworkPacket, retained: boolean = false, qos: 0 | 1 | 2 = 1) {
     try {
       if (this.client && this.client.isConnected()) {
         const msg = new Paho.Message(JSON.stringify(packet));
         msg.destinationName = topic;
-        msg.qos = 1;
+        msg.qos = qos;
         if (retained) {
           msg.retained = true;
         }

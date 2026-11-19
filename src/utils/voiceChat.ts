@@ -69,9 +69,12 @@ export class VoiceChatManager {
   private localStream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
+  private audioProcessor: ScriptProcessorNode | null = null;
   private speechCheckInterval: number | null = null;
   private presenceHeartbeat: number | null = null;
   private isUnlockAttached: boolean = false;
+  private peerPlayTimes: Map<string, number> = new Map();
+  private peerSpeakingTimers: Map<string, any> = new Map();
 
   // Peer connections: remoteClientId -> RTCPeerConnection
   private peerConnections: Map<string, RTCPeerConnection> = new Map();
@@ -89,22 +92,42 @@ export class VoiceChatManager {
 
   private listeners: Array<(state: VoiceState) => void> = [];
 
+  private lastRelayChunkTime: Map<string, number> = new Map();
+
   constructor() {
     this.isSupported = typeof window !== 'undefined' &&
       typeof navigator !== 'undefined' &&
       typeof navigator.mediaDevices?.getUserMedia === 'function' &&
       typeof window.RTCPeerConnection === 'function';
+
+    this.attachAudioUnlock();
   }
 
-  // Attach touch/click listener to ensure AudioContext and HTML Audio are never blocked by mobile OS
+  // Attach touch/click listener to ensure AudioContext and HTML Audio are unlocked by mobile OS
   private attachAudioUnlock() {
     if (this.isUnlockAttached || typeof window === 'undefined') return;
     this.isUnlockAttached = true;
 
     const unlock = () => {
-      if (this.audioContext && this.audioContext.state === 'suspended') {
-        this.audioContext.resume().catch(() => {});
-      }
+      try {
+        if (!this.audioContext || this.audioContext.state === 'closed') {
+          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioCtx) {
+            this.audioContext = new AudioCtx();
+          }
+        }
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+          this.audioContext.resume().catch(() => {});
+        }
+        if (this.audioContext && this.audioContext.state === 'running') {
+          // Play silent 1-sample buffer to unlock iOS Safari & Android Chrome hardware audio pipeline
+          const buffer = this.audioContext.createBuffer(1, 1, 22050);
+          const source = this.audioContext.createBufferSource();
+          source.buffer = buffer;
+          source.connect(this.audioContext.destination);
+          source.start(0);
+        }
+      } catch {}
       this.remoteAudios.forEach((audio) => {
         if (audio.paused && audio.srcObject) {
           audio.play().catch(() => {});
@@ -114,6 +137,133 @@ export class VoiceChatManager {
 
     window.addEventListener('click', unlock, { passive: true });
     window.addEventListener('touchstart', unlock, { passive: true });
+  }
+
+  // Resample audio buffer using linear interpolation to target rate (e.g. 48kHz -> 12kHz)
+  private resampleAudio(input: Float32Array, inputRate: number, targetRate: number): Float32Array {
+    if (inputRate === targetRate) return input;
+    const ratio = inputRate / targetRate;
+    const outputLength = Math.round(input.length / ratio);
+    const output = new Float32Array(outputLength);
+    for (let i = 0; i < outputLength; i++) {
+      const srcPos = i * ratio;
+      const idx0 = Math.floor(srcPos);
+      const idx1 = Math.min(idx0 + 1, input.length - 1);
+      const frac = srcPos - idx0;
+      output[i] = input[idx0] * (1 - frac) + input[idx1] * frac;
+    }
+    return output;
+  }
+
+  // Convert ArrayBuffer to Base64 string
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  // Decode Base64 string to Float32Array [-1.0, 1.0] with signed 16-bit PCM little-endian
+  private base64ToFloat32Array(base64: string): Float32Array {
+    try {
+      const binary = atob(base64);
+      const len = binary.length;
+      const numSamples = Math.floor(len / 2);
+      const float32 = new Float32Array(numSamples);
+      for (let i = 0; i < numSamples; i++) {
+        const byte0 = binary.charCodeAt(i * 2);
+        const byte1 = binary.charCodeAt(i * 2 + 1);
+        let val = byte0 | (byte1 << 8);
+        if (val >= 0x8000) val -= 0x10000;
+        float32[i] = val / 32768;
+      }
+      return float32;
+    } catch {
+      return new Float32Array(0);
+    }
+  }
+
+  // Play incoming real-time audio chunk through Web Audio API
+  private playRemoteAudioChunk(fromClientId: string, slot: PlayerId, base64: string, sampleRate: number) {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      if (!this.audioContext || this.audioContext.state === 'closed') {
+        this.audioContext = new AudioCtx();
+      }
+      if (this.audioContext.state === 'suspended') {
+        this.audioContext.resume().catch(() => {});
+      }
+
+      // 1. Decode base64 to Float32Array
+      const float32 = this.base64ToFloat32Array(base64);
+      if (!float32 || float32.length === 0) return;
+
+      // 2. Create audio buffer
+      const buffer = this.audioContext.createBuffer(1, float32.length, sampleRate);
+      buffer.getChannelData(0).set(float32);
+
+      // 3. Create buffer source with speech volume boost for mobile phone speakers
+      const source = this.audioContext.createBufferSource();
+      source.buffer = buffer;
+      const gainNode = this.audioContext.createGain();
+      gainNode.gain.value = 1.6;
+      source.connect(gainNode);
+      gainNode.connect(this.audioContext.destination);
+
+      // 4. Jitter buffer / continuous gapless playback scheduling
+      const now = this.audioContext.currentTime;
+      let nextPlayTime = this.peerPlayTimes.get(fromClientId) || 0;
+      if (nextPlayTime < now) {
+        nextPlayTime = now + 0.04; // 40ms safety buffer
+      } else if (nextPlayTime > now + 0.35) {
+        // Prevent backlog delay if network had a spike
+        nextPlayTime = now + 0.04;
+      }
+      source.start(nextPlayTime);
+      nextPlayTime += buffer.duration;
+      this.peerPlayTimes.set(fromClientId, nextPlayTime);
+
+      // 5. Update speaker indicator in UI (avatar green pulsing ring & speaking banner)
+      let peer = this.remotePeers.get(fromClientId);
+      const targetSlot = slot || peer?.slot || 'p2';
+      const namedRoster = networkManager.getNamedRoster();
+      const resolvedName = (slot && namedRoster[slot]) || peer?.playerName || 'Commander';
+
+      if (!peer) {
+        this.remotePeers.set(fromClientId, {
+          clientId: fromClientId,
+          slot: targetSlot,
+          playerName: resolvedName,
+          isMuted: false,
+          isSpeaking: true
+        });
+        peer = this.remotePeers.get(fromClientId);
+      } else {
+        if (slot) peer.slot = slot;
+        if (resolvedName && resolvedName !== 'Commander') peer.playerName = resolvedName;
+        peer.isSpeaking = true;
+      }
+      this.lastRelayChunkTime.set(fromClientId, Date.now());
+      this.notify();
+
+      const existingTimer = this.peerSpeakingTimers.get(fromClientId);
+      if (existingTimer) clearTimeout(existingTimer);
+      const timer = setTimeout(() => {
+        const p = this.remotePeers.get(fromClientId);
+        if (p) {
+          p.isSpeaking = false;
+          this.notify();
+        }
+      }, 350);
+      this.peerSpeakingTimers.set(fromClientId, timer);
+    } catch (err) {
+      console.warn('[Voice] Error playing remote audio chunk:', err);
+    }
   }
 
   public subscribe(listener: (state: VoiceState) => void): () => void {
@@ -335,18 +485,72 @@ export class VoiceChatManager {
     return this.isMuted;
   }
 
-  // Web Audio Analyser for Speaking Detection
+  // Web Audio Analyser & Real-time Audio Processor
   private startAudioAnalyser(stream: MediaStream) {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
 
-      this.audioContext = new AudioCtx();
+      if (!this.audioContext || this.audioContext.state === 'closed') {
+        this.audioContext = new AudioCtx();
+      }
+      if (this.audioContext.state === 'suspended') {
+        this.audioContext.resume().catch(() => {});
+      }
+
       const source = this.audioContext.createMediaStreamSource(stream);
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
       this.analyser.smoothingTimeConstant = 0.4;
       source.connect(this.analyser);
+
+      // Create ScriptProcessorNode for real-time VoIP audio chunk streaming (4096 samples = ~85-92ms)
+      const processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+      source.connect(processor);
+
+      // ScriptProcessorNode requires a destination connection to process audio
+      const muteGain = this.audioContext.createGain();
+      muteGain.gain.value = 0; // Prevent local mic loopback to own speaker
+      processor.connect(muteGain);
+      muteGain.connect(this.audioContext.destination);
+
+      this.audioProcessor = processor;
+
+      processor.onaudioprocess = (e) => {
+        if (!this.isJoined || this.isMuted) return;
+
+        const input = e.inputBuffer.getChannelData(0);
+
+        // Calculate RMS for Voice Activity Detection
+        let sum = 0;
+        for (let i = 0; i < input.length; i++) {
+          sum += input[i] * input[i];
+        }
+        const rms = Math.sqrt(sum / input.length);
+
+        // If speaking above ambient noise threshold
+        if (rms > 0.012) {
+          const sampleRate = this.audioContext?.sampleRate || 44100;
+          const targetRate = 12000;
+          const resampled = this.resampleAudio(input, sampleRate, targetRate);
+
+          const int16 = new Int16Array(resampled.length);
+          for (let i = 0; i < resampled.length; i++) {
+            const s = Math.max(-1, Math.min(1, resampled[i]));
+            int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+
+          const b64 = this.arrayBufferToBase64(int16.buffer);
+
+          networkManager.sendVoiceSignal({
+            signalType: 'audio_chunk',
+            fromClientId: this.myClientId,
+            slot: this.mySlot,
+            data: b64,
+            sampleRate: targetRate
+          }, 0);
+        }
+      };
 
       const bufferLength = this.analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
@@ -403,13 +607,19 @@ export class VoiceChatManager {
     } catch {}
   }
 
-  // Handle Incoming WebRTC Signaling
+  // Handle Incoming WebRTC / VoIP Signaling
   private async handleVoiceSignal(signal: any) {
-    if (!this.isJoined || !signal || signal.fromClientId === this.myClientId) {
+    if ((!this.isJoined && !this.isConnecting) || !signal || signal.fromClientId === this.myClientId) {
       return;
     }
 
     const { signalType, fromClientId, toClientId } = signal;
+
+    // CASE 0: Real-time Audio Chunk received via Relay
+    if (signalType === 'audio_chunk' && signal.data) {
+      this.playRemoteAudioChunk(fromClientId, signal.slot, signal.data, signal.sampleRate || 12000);
+      return;
+    }
 
     // CASE 1: Peer Joined Voice
     if (signalType === 'join') {
@@ -654,12 +864,17 @@ export class VoiceChatManager {
       }
     };
 
-    // On remote audio track received
+    // On remote audio track received (P2P fallback)
     pc.ontrack = (event) => {
       console.log(`[Voice] Audio track received from ${clientId} (${name})`, event.streams);
+      const isRelayActive = Date.now() - (this.lastRelayChunkTime.get(clientId) || 0) < 5000;
+      if (isRelayActive) {
+        // Relay is actively handling this peer's audio with volume boost and jitter buffering; skip P2P to avoid echo.
+        return;
+      }
       const stream = event.streams[0] || new MediaStream([event.track]);
 
-      // Route 1: Web Audio API (Direct to hardware speakers, immune to mobile HTML5 autoplay policy)
+      // Route 1: Web Audio API (Direct to hardware speakers)
       try {
         if (!this.audioContext || this.audioContext.state === 'closed') {
           const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -676,23 +891,6 @@ export class VoiceChatManager {
       } catch (err) {
         console.warn('[Voice] Web Audio routing error:', err);
       }
-
-      // Route 2: HTML Audio element with mobile playsInline & auto-resume
-      let audio = this.remoteAudios.get(clientId);
-      if (!audio) {
-        audio = new Audio();
-        audio.autoplay = true;
-        (audio as any).playsInline = true;
-        audio.volume = 1.0;
-        audio.muted = false;
-        audio.style.display = 'none';
-        document.body.appendChild(audio);
-        this.remoteAudios.set(clientId, audio);
-      }
-      audio.srcObject = stream;
-      audio.play().catch((e) => {
-        console.warn('[Voice] Remote audio autoplay blocked:', e);
-      });
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -747,6 +945,18 @@ export class VoiceChatManager {
       clearInterval(this.speechCheckInterval);
       this.speechCheckInterval = null;
     }
+
+    if (this.audioProcessor) {
+      try {
+        this.audioProcessor.disconnect();
+      } catch {}
+      this.audioProcessor = null;
+    }
+
+    this.peerSpeakingTimers.forEach((timer) => clearTimeout(timer));
+    this.peerSpeakingTimers.clear();
+    this.peerPlayTimes.clear();
+    this.lastRelayChunkTime.clear();
 
     if (this.audioContext) {
       try {
