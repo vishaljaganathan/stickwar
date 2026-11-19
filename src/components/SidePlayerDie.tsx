@@ -54,8 +54,8 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
             className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full shrink-0 shadow-xs"
             style={{ backgroundColor: isP1 ? '#60a5fa' : '#fb7185' }}
           />
-          <span className="font-retro font-black text-[8px] sm:text-[11px] text-white tracking-wider truncate">
-            {isP1 ? 'P1' : 'P2'}
+          <span className="font-retro font-black text-[7px] xs:text-[8px] sm:text-[10px] text-white tracking-wider truncate max-w-[42px] xs:max-w-[55px] sm:max-w-[80px]">
+            {playerState.name || (isP1 ? 'P1' : 'P2')}
           </span>
         </div>
 

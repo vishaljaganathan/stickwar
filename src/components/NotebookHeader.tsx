@@ -14,6 +14,7 @@ interface NotebookHeaderProps {
   player2: PlayerState;
   currentTurn: 'p1' | 'p2';
   lastLogEntry: string;
+  localPlayerId?: 'p1' | 'p2' | null;
 }
 
 export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
@@ -28,7 +29,8 @@ export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
   player1,
   player2,
   currentTurn,
-  lastLogEntry
+  lastLogEntry,
+  localPlayerId
 }) => {
   return (
     <header className="w-full max-w-5xl mx-auto px-0.5 sm:px-1 pt-0.5 sm:pt-1 shrink-0 select-none">
@@ -48,9 +50,14 @@ export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-0.5 sm:gap-1">
-              <span className="font-retro font-black text-[10px] sm:text-sm text-blue-200 tracking-wider truncate max-w-[55px] sm:max-w-[100px]">
+              <span className="font-retro font-black text-[10px] sm:text-sm text-blue-200 tracking-wider truncate max-w-[75px] xs:max-w-[100px] sm:max-w-[140px]">
                 {player1.name}
               </span>
+              {localPlayerId === 'p1' && (
+                <span className="px-1 py-0 rounded bg-emerald-500 text-slate-950 font-mono font-black text-[7px] sm:text-[8px] leading-tight shrink-0">
+                  YOU
+                </span>
+              )}
               {currentTurn === 'p1' && (
                 <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-amber-400 animate-ping inline-block" />
               )}
@@ -92,10 +99,15 @@ export const NotebookHeader: React.FC<NotebookHeaderProps> = ({
         >
           <div className="min-w-0 text-right">
             <div className="flex items-center justify-end gap-0.5 sm:gap-1">
+              {localPlayerId === 'p2' && (
+                <span className="px-1 py-0 rounded bg-emerald-500 text-slate-950 font-mono font-black text-[7px] sm:text-[8px] leading-tight shrink-0">
+                  YOU
+                </span>
+              )}
               {currentTurn === 'p2' && (
                 <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-amber-400 animate-ping inline-block" />
               )}
-              <span className="font-retro font-black text-[10px] sm:text-sm text-rose-200 tracking-wider truncate max-w-[55px] sm:max-w-[100px]">
+              <span className="font-retro font-black text-[10px] sm:text-sm text-rose-200 tracking-wider truncate max-w-[75px] xs:max-w-[100px] sm:max-w-[140px]">
                 {player2.name}
               </span>
             </div>

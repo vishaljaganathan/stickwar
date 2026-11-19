@@ -535,18 +535,46 @@ export const App: React.FC = () => {
   // Network Listeners
   useEffect(() => {
     networkManager.onStateSync = (incomingState) => {
-      setGameState((prev) => ({
-        ...prev,
-        ...incomingState
-      }));
+      setGameState((prev) => {
+        const mergedPlayers = { ...prev.players };
+        if (incomingState.players?.p1) {
+          mergedPlayers.p1 = {
+            ...mergedPlayers.p1,
+            ...incomingState.players.p1,
+            name: incomingState.players.p1.name || mergedPlayers.p1.name
+          };
+        }
+        if (incomingState.players?.p2) {
+          mergedPlayers.p2 = {
+            ...mergedPlayers.p2,
+            ...incomingState.players.p2,
+            name: incomingState.players.p2.name || mergedPlayers.p2.name
+          };
+        }
+
+        return {
+          ...prev,
+          ...incomingState,
+          players: mergedPlayers
+        };
+      });
     };
 
     networkManager.onReaction = (reaction) => {
+      const oppName = networkManager.opponentPlayerName || 'Opponent';
       setReactionNotice({
         emoji: reaction,
-        from: 'Opponent'
+        from: oppName
       });
       setTimeout(() => setReactionNotice(null), 2500);
+    };
+
+    networkManager.onOpponentDisconnected = (name) => {
+      setReactionNotice({
+        emoji: '📡',
+        from: `${name || 'Opponent'} Left Room`
+      });
+      setTimeout(() => setReactionNotice(null), 3000);
     };
 
     return () => {
@@ -570,27 +598,66 @@ export const App: React.FC = () => {
   const handleResetGame = () => {
     const initial = createInitialGameState(gameState.mode);
     initial.roomCode = gameState.roomCode;
+    initial.players.p1.name = gameState.players.p1.name;
+    initial.players.p2.name = gameState.players.p2.name;
     setP1Display('?');
     setP2Display('?');
     setGameState(initial);
     broadcastState(initial);
   };
 
-  const handleStartOnlineHost = (mode: 'online_p2p' | 'online_firebase', roomCode: string) => {
+  const handleStartOnlineHost = (
+    mode: 'online_p2p' | 'online_firebase',
+    roomCode: string,
+    playerName?: string
+  ) => {
+    const hostName = (playerName || 'Player 1').trim() || 'Player 1';
     setLocalPlayerId('p1');
     const newGame = createInitialGameState(mode);
     newGame.roomCode = roomCode;
+    newGame.players.p1.name = hostName;
+    newGame.players.p2.name = 'Waiting for P2...';
+    newGame.log = [`Match hosted by ${hostName}! Waiting for Player 2 to enter room ${roomCode}...`];
     setGameState(newGame);
 
     if (mode === 'online_p2p') {
       networkManager.hostRoom(
         roomCode,
+        hostName,
         () => console.log('Host room ready:', roomCode),
         (err) => console.error('Host error:', err)
       );
-      networkManager.onOpponentConnected = () => {
-        broadcastState(newGame);
-        setIsMultiplayerOpen(false);
+
+      networkManager.onOpponentJoining = (guestName) => {
+        setGameState((prev) => ({
+          ...prev,
+          players: {
+            ...prev.players,
+            p2: { ...prev.players.p2, name: `${guestName} (Joining...)` }
+          },
+          log: [...prev.log, `⚡ ${guestName} is joining the room...`]
+        }));
+      };
+
+      networkManager.onOpponentConnected = (guestName) => {
+        const finalGuestName = guestName || 'Player 2';
+        setGameState((prev) => {
+          const updated: GameState = {
+            ...prev,
+            players: {
+              ...prev.players,
+              p1: { ...prev.players.p1, name: hostName },
+              p2: { ...prev.players.p2, name: finalGuestName }
+            },
+            log: [
+              ...prev.log,
+              `🎮 ${finalGuestName} joined the room! Battle begins!`
+            ]
+          };
+          broadcastState(updated);
+          return updated;
+        });
+        setTimeout(() => setIsMultiplayerOpen(false), 900);
       };
     } else {
       firebaseSync.createRoom(roomCode, newGame).then(() => {
@@ -604,19 +671,39 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleStartOnlineJoin = (mode: 'online_p2p' | 'online_firebase', roomCode: string) => {
+  const handleStartOnlineJoin = (
+    mode: 'online_p2p' | 'online_firebase',
+    roomCode: string,
+    playerName?: string
+  ) => {
+    const guestName = (playerName || 'Player 2').trim() || 'Player 2';
     setLocalPlayerId('p2');
     const newGame = createInitialGameState(mode);
     newGame.roomCode = roomCode;
-    newGame.players.p2.name = 'Player 2 (You)';
-    newGame.players.p1.name = 'Host Player';
+    newGame.players.p2.name = guestName;
+    newGame.players.p1.name = 'Connecting...';
+    newGame.log = [`Connecting to room ${roomCode} as ${guestName}...`];
+    setGameState(newGame);
 
     if (mode === 'online_p2p') {
       networkManager.joinRoom(
         roomCode,
-        () => {
-          setGameState(newGame);
-          setIsMultiplayerOpen(false);
+        guestName,
+        (hostName) => {
+          const finalHostName = hostName || 'Host Player';
+          setGameState((prev) => ({
+            ...prev,
+            players: {
+              ...prev.players,
+              p1: { ...prev.players.p1, name: finalHostName },
+              p2: { ...prev.players.p2, name: guestName }
+            },
+            log: [
+              ...prev.log,
+              `🎮 Connected to ${finalHostName}'s room! Battle begins!`
+            ]
+          }));
+          setTimeout(() => setIsMultiplayerOpen(false), 900);
         },
         (err) => console.error('Join error:', err)
       );
@@ -677,6 +764,7 @@ export const App: React.FC = () => {
         player2={gameState.players.p2}
         currentTurn={gameState.currentTurn}
         lastLogEntry={gameState.log[gameState.log.length - 1] || 'Battle ready! Roll to recruit stickmen.'}
+        localPlayerId={localPlayerId}
       />
 
       {/* 2. Tactical Status & Emote Ribbon */}

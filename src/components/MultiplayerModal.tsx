@@ -9,8 +9,8 @@ interface MultiplayerModalProps {
   onClose: () => void;
   onSelectLocal: () => void;
   onSelectAI: () => void;
-  onStartOnlineHost: (mode: 'online_p2p' | 'online_firebase', roomCode: string) => void;
-  onStartOnlineJoin: (mode: 'online_p2p' | 'online_firebase', roomCode: string) => void;
+  onStartOnlineHost: (mode: 'online_p2p' | 'online_firebase', roomCode: string, playerName?: string) => void;
+  onStartOnlineJoin: (mode: 'online_p2p' | 'online_firebase', roomCode: string, playerName?: string) => void;
   onOpenFirebaseConfig: () => void;
 }
 
@@ -35,11 +35,33 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [networkStatus, setNetworkStatus] = useState<string>('');
 
+  // Player Name State (Saved in localStorage so player enters it once)
+  const [playerName, setPlayerName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('stickman_commander_name') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  // Host Live Status: opponent joining / connected feedback
+  const [joiningGuestName, setJoiningGuestName] = useState<string | null>(null);
+  const [connectedGuestName, setConnectedGuestName] = useState<string | null>(null);
+
+  const savePlayerName = (name: string) => {
+    setPlayerName(name);
+    try {
+      localStorage.setItem('stickman_commander_name', name);
+    } catch {}
+  };
+
   useEffect(() => {
     if (isOpen) {
       setErrorMessage('');
       setNetworkStatus('');
       setIsConnecting(false);
+      setJoiningGuestName(null);
+      setConnectedGuestName(null);
 
       if (initialRoomCode) {
         setInputCode(initialRoomCode);
@@ -49,15 +71,30 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         const code = P2PNetworkManager.generateRoomCode();
         setRoomCode(code);
         setActiveTab('host');
-        onStartOnlineHost('online_p2p', code);
+        const defaultName = playerName.trim() || 'Player 1';
+        onStartOnlineHost('online_p2p', code, defaultName);
       } else {
         setActiveTab(initialTab);
       }
     }
   }, [isOpen, initialTab, initialRoomCode]);
 
-  // Hook into live network manager status
+  // Hook into live network manager status and opponent joining events
   useEffect(() => {
+    networkManager.onOpponentJoining = (guestName: string) => {
+      console.log('[MultiplayerModal] Opponent joining:', guestName);
+      setJoiningGuestName(guestName);
+      setNetworkStatus(`⚡ ${guestName} is connecting...`);
+    };
+
+    networkManager.onOpponentConnected = (name: string) => {
+      console.log('[MultiplayerModal] Opponent connected:', name);
+      setConnectedGuestName(name);
+      setJoiningGuestName(null);
+      setIsConnecting(false);
+      setNetworkStatus(`🎉 ${name} connected! Starting match...`);
+    };
+
     networkManager.onStatusChange = (status: string) => {
       setNetworkStatus(status);
       if (status.toLowerCase().includes('connected')) {
@@ -83,8 +120,11 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     setOnlineType(type);
     setActiveTab('host');
     setErrorMessage('');
-    setNetworkStatus('Creating room & registering with STUN/TURN relays...');
-    onStartOnlineHost(type === 'firebase' ? 'online_firebase' : 'online_p2p', code);
+    setJoiningGuestName(null);
+    setConnectedGuestName(null);
+    setNetworkStatus('Creating room & registering with cloud relay...');
+    const defaultName = playerName.trim() || 'Player 1';
+    onStartOnlineHost(type === 'firebase' ? 'online_firebase' : 'online_p2p', code, defaultName);
   };
 
   const handleStartJoining = (type: 'p2p' | 'firebase') => {
@@ -106,8 +146,13 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     }
     setIsConnecting(true);
     setErrorMessage('');
-    setNetworkStatus('Connecting to room across internet (STUN/TURN)...');
-    onStartOnlineJoin(onlineType === 'firebase' ? 'online_firebase' : 'online_p2p', normalized.displayCode);
+    const defaultGuestName = playerName.trim() || 'Player 2';
+    setNetworkStatus(`Connecting to room ${normalized.displayCode} as ${defaultGuestName}...`);
+    onStartOnlineJoin(
+      onlineType === 'firebase' ? 'online_firebase' : 'online_p2p',
+      normalized.displayCode,
+      defaultGuestName
+    );
   };
 
   const handlePasteCode = async () => {
@@ -140,11 +185,12 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/65 backdrop-blur-sm animate-fade-in select-none">
-      <div className="relative w-full max-w-lg bg-[#fffefb] rounded-3xl border-3 sm:border-4 border-[#0f172a] shadow-[8px_8px_0px_#0f172a] p-5 sm:p-6 overflow-hidden">
+      <div className="relative w-full max-w-lg bg-[#fffefb] rounded-3xl border-3 sm:border-4 border-[#0f172a] shadow-[8px_8px_0px_#0f172a] p-4 sm:p-6 overflow-hidden max-h-[95vh] overflow-y-auto">
         {/* Retro Header Ribbon */}
         <div className="absolute top-0 left-0 right-0 h-3.5 bg-amber-400 border-b-2 border-[#0f172a]" />
 
-        <div className="flex items-center justify-between mt-1 mb-3 border-b-2 border-slate-200 pb-2">
+        {/* Modal Top Bar */}
+        <div className="flex items-center justify-between mt-1 mb-2.5 border-b-2 border-slate-200 pb-2">
           <div className="flex items-center gap-2">
             <span className="text-2xl">🎮</span>
             <h2 className="text-xl sm:text-2xl font-retro font-black text-[#0f172a] uppercase tracking-wide">
@@ -163,6 +209,31 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           </button>
         </div>
 
+        {/* Commander Name Setup Bar (Always visible so players can set their identity) */}
+        <div className="mb-3 p-2 sm:p-2.5 bg-amber-50 border-2 border-[#0f172a] rounded-xl sm:rounded-2xl flex items-center justify-between gap-2 shadow-xs">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-amber-400 border border-[#0f172a] flex items-center justify-center text-sm sm:text-base shrink-0 shadow-xs">
+              🤠
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="block text-[8px] sm:text-[9px] font-mono font-black text-amber-900 uppercase tracking-wider">
+                YOUR COMMANDER NAME:
+              </span>
+              <input
+                type="text"
+                value={playerName}
+                onChange={(e) => savePlayerName(e.target.value)}
+                placeholder="Enter your name (e.g. Vishal, Priya)"
+                maxLength={14}
+                className="w-full text-xs sm:text-sm font-retro font-black text-blue-900 bg-transparent border-b border-dashed border-amber-600 focus:outline-none focus:border-blue-700 px-0.5"
+              />
+            </div>
+          </div>
+          <span className="text-[9px] font-mono font-bold text-amber-800 bg-amber-200/80 px-2 py-0.5 rounded-full border border-amber-400 shrink-0">
+            {playerName.trim() ? '✓ READY' : 'TYPE NAME'}
+          </span>
+        </div>
+
         {/* Global Error Banner */}
         {errorMessage && (
           <div className="mb-2.5 p-2 rounded-xl bg-rose-100 border-2 border-rose-400 text-rose-800 text-xs font-retro font-bold flex items-start gap-1.5">
@@ -173,13 +244,13 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
         {/* Live Network Status Indicator */}
         {networkStatus && !errorMessage && (
-          <div className="mb-2.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-mono font-bold flex items-center gap-2 animate-pulse">
-            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+          <div className="mb-2.5 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-300 text-blue-900 text-[11px] font-mono font-bold flex items-center gap-2 animate-pulse">
+            <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
             <span className="truncate">{networkStatus}</span>
           </div>
         )}
 
-        {/* TAB: MODES */}
+        {/* TAB 1: MODES */}
         {activeTab === 'modes' && (
           <div className="space-y-2.5 font-retro">
             {/* Realtime Cloud Relay Section */}
@@ -194,10 +265,10 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 </span>
               </div>
               <p className="text-xs font-hand font-bold text-slate-600 mb-1">
-                Play across any city (Pondicherry ⇄ Bengaluru) on phone 4G/5G or Wi-Fi with instant room codes!
+                Play across any device & city (Pondicherry ⇄ Bengaluru) on phone 4G/5G or Wi-Fi with instant room codes!
               </p>
               <div className="flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-800 mb-2.5">
-                <span>✓ 100% Connect Rate (Bypasses Mobile CGNAT & Firewalls)</span>
+                <span>✓ High-speed WSS relay with live player name sync</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -270,7 +341,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           </div>
         )}
 
-        {/* TAB: HOST ROOM */}
+        {/* TAB 2: HOST ROOM */}
         {activeTab === 'host' && (
           <div className="text-center py-2 space-y-3 font-retro">
             <span className="px-3 py-0.5 bg-amber-300 border-2 border-[#0f172a] rounded-full text-[10px] font-black uppercase tracking-wider text-[#0f172a] shadow-xs inline-block">
@@ -302,10 +373,48 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               </button>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-xs font-hand space-y-1">
-              <p className="font-bold">Share this code or link with Player 2 on any phone or PC!</p>
+            {/* LIVE OPPONENT JOINING STATUS RADAR */}
+            {connectedGuestName ? (
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-100 to-emerald-200 border-2 sm:border-3 border-emerald-600 shadow-md flex items-center justify-center gap-3 animate-fade-in">
+                <span className="text-3xl">🎉</span>
+                <div className="text-left">
+                  <div className="text-xs sm:text-sm font-retro font-black text-emerald-950 uppercase">
+                    {connectedGuestName} JOINED!
+                  </div>
+                  <div className="text-[10px] font-mono text-emerald-800">
+                    Entering battlefield now...
+                  </div>
+                </div>
+              </div>
+            ) : joiningGuestName ? (
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-200 to-amber-300 border-2 sm:border-3 border-amber-600 shadow-md flex items-center justify-center gap-3 animate-bounce">
+                <span className="text-3xl">⚡</span>
+                <div className="text-left">
+                  <div className="text-xs sm:text-sm font-retro font-black text-amber-950 uppercase">
+                    {joiningGuestName} IS JOINING!
+                  </div>
+                  <div className="text-[10px] font-mono text-amber-900">
+                    Handshaking connection...
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-2xl bg-blue-50 border-2 border-dashed border-blue-400 flex flex-col items-center justify-center space-y-1">
+                <div className="flex items-center justify-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping inline-block" />
+                  <span className="text-xs font-retro font-black text-blue-900 tracking-wide uppercase">
+                    WAITING FOR OPPONENT TO JOIN...
+                  </span>
+                </div>
+                <p className="text-[10px] font-mono text-slate-500">
+                  Hosting as <strong className="text-blue-900">{playerName.trim() || 'Player 1'}</strong>. Send code or link to your friend!
+                </p>
+              </div>
+            )}
+
+            <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-xs font-hand">
               <p className="text-[10px] text-slate-500 font-mono">
-                Works across different cities (Pondicherry ⇄ Bengaluru) on phone 4G/5G and Wi-Fi via Cloud Relay.
+                Works across different cities (Pondicherry ⇄ Bengaluru) on phone 4G/5G & Wi-Fi.
               </p>
             </div>
 
@@ -317,12 +426,14 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           </div>
         )}
 
-        {/* TAB: JOIN ROOM */}
+        {/* TAB 3: JOIN ROOM */}
         {activeTab === 'join' && (
           <div className="py-2 space-y-3 font-retro">
             <div className="text-center">
               <h3 className="text-lg font-black text-[#0f172a] uppercase">ENTER MATCH CODE</h3>
-              <p className="text-xs font-hand font-bold text-slate-500">Type or paste the 4-letter room code shared by the host</p>
+              <p className="text-xs font-hand font-bold text-slate-500">
+                Joining as <strong className="text-blue-900 font-mono">{playerName.trim() || 'Player 2'}</strong>
+              </p>
             </div>
 
             <div className="max-w-xs mx-auto space-y-2">
@@ -372,7 +483,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
             <div className="text-center pt-1">
               <span className="text-[10px] font-mono text-slate-400">
-                Supports cross-carrier cellular data and Wi-Fi NAT traversal
+                Direct peer-to-peer cloud relay with instant name sync
               </span>
             </div>
           </div>
