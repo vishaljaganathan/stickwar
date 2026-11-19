@@ -11,7 +11,7 @@ export interface NetworkMessage {
 export interface NetworkPacket {
   senderId: string;
   senderRole: NetworkRole;
-  type: 'HELLO' | 'WELCOME' | 'SYNC_STATE' | 'NAME_UPDATE' | 'START_MATCH' | 'KICK' | 'REACTION' | 'VOICE_SIGNAL' | 'PING' | 'PONG' | 'DISCONNECT';
+  type: 'HELLO' | 'WELCOME' | 'SYNC_STATE' | 'NAME_UPDATE' | 'START_MATCH' | 'KICK' | 'REACTION' | 'VOICE_SIGNAL' | 'PING' | 'PONG' | 'DISCONNECT' | 'ROOM_INFO';
   playerName?: string;
   payload?: any;
   timestamp: number;
@@ -61,6 +61,7 @@ export class P2PNetworkManager {
   private connectionTimeout: number | null = null;
   private guestRetryInterval: number | null = null;
   private heartbeatInterval: number | null = null;
+  private reconnectTimeout: any = null;
   private guestConnectedCallback: ((assignedId: PlayerId, roster: Record<string, PlayerRosterEntry>, hostName: string) => void) | null = null;
 
   // Multi-subscriber Event Listeners
@@ -91,6 +92,99 @@ export class P2PNetworkManager {
 
   constructor() {
     this.clientId = this.generateClientId();
+    this.setupLifecycleListeners();
+  }
+
+  // Handle phone sleep / app backgrounding / network reconnect
+  private setupLifecycleListeners() {
+    if (typeof window === 'undefined') return;
+
+    const handleWakeup = () => {
+      console.log('[Network] Window focus/visibility change: checking connection');
+      this.ensureConnected();
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          handleWakeup();
+        }
+      });
+    }
+
+    window.addEventListener('focus', handleWakeup);
+    window.addEventListener('online', handleWakeup);
+  }
+
+  // Auto-reconnect with exponential backoff if socket drops
+  public scheduleReconnect() {
+    if (this.reconnectTimeout) return;
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      if (this.roomCode && this.role !== 'offline') {
+        this.ensureConnected();
+      }
+    }, 1500);
+  }
+
+  // Ensure connection is active and subscribed to room topic
+  public ensureConnected() {
+    if (!this.roomCode || this.role === 'offline') return;
+
+    const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
+    const topic = this.getTopic(cleanCode);
+
+    if (!this.client || !this.client.isConnected()) {
+      console.log('[Network] Re-establishing dropped connection...');
+      this.connectMqttClient(
+        topic,
+        () => {
+          console.log('[Network] Successfully reconnected to room topic');
+          if (this.role === 'host') {
+            this.reannounceHost(topic);
+          } else if (this.role === 'guest' && !this.isConnected) {
+            this.publishPacket(topic, {
+              senderId: this.clientId,
+              senderRole: 'guest',
+              type: 'HELLO',
+              playerName: this.localPlayerName,
+              timestamp: Date.now()
+            });
+            this.startGuestJoinRetry(topic);
+          }
+        },
+        (err) => {
+          console.warn('[Network] Reconnect attempt failed:', err);
+        }
+      );
+    } else {
+      if (this.role === 'host') {
+        this.reannounceHost(topic);
+      }
+    }
+  }
+
+  // Broadcast host room info as RETAINED MQTT message
+  public reannounceHost(topic: string) {
+    const currentCount = Object.keys(this.roster).length;
+    this.publishPacket(
+      topic,
+      {
+        senderId: this.clientId,
+        senderRole: 'host',
+        type: 'ROOM_INFO',
+        playerName: this.localPlayerName,
+        payload: {
+          hostName: this.localPlayerName,
+          maxPlayers: this.maxPlayers,
+          currentCount,
+          roster: this.roster,
+          isOpen: true
+        },
+        timestamp: Date.now()
+      },
+      true // RETAINED! Preserved on broker while host shares link on WhatsApp
+    );
   }
 
   private generateClientId(): string {
@@ -205,8 +299,10 @@ export class P2PNetworkManager {
       topic,
       () => {
         console.log(`[Host] Room ready for ${maxPlayers} players:`, displayCode);
+        this.isConnected = true;
         this.emit('statusChange', `Room active! Waiting for players to join (1/${maxPlayers})...`);
         onReady(displayCode);
+        this.reannounceHost(topic);
         this.startHostPresenceAnnouncement(topic);
       },
       (err) => onError(err)
@@ -235,7 +331,7 @@ export class P2PNetworkManager {
 
     this.emit('statusChange', `Connecting to room ${displayCode}...`);
 
-    // Timeout guard: 16 seconds
+    // Timeout guard: 35 seconds (generous for mobile switching & slower 4G/5G networks)
     this.connectionTimeout = window.setTimeout(() => {
       if (!this.isConnected) {
         const msg = `Could not reach room ${displayCode}. Please make sure the host has created the match and is waiting!`;
@@ -243,7 +339,7 @@ export class P2PNetworkManager {
         onError(msg);
         this.cleanup();
       }
-    }, 16000);
+    }, 35000);
 
     const topic = this.getTopic(cleanCode);
     this.connectMqttClient(
@@ -372,8 +468,9 @@ export class P2PNetworkManager {
       this.client.onConnectionLost = (responseObject) => {
         if (responseObject.errorCode !== 0) {
           console.warn('[MQTT] Connection lost:', responseObject.errorMessage);
-          if (this.isConnected) {
-            this.emit('statusChange', 'Reconnecting to match...');
+          if (this.role !== 'offline') {
+            this.emit('statusChange', 'Connection interrupted. Reconnecting...');
+            this.scheduleReconnect();
           }
         }
       };
@@ -432,6 +529,29 @@ export class P2PNetworkManager {
 
       const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
       const topic = this.getTopic(cleanCode);
+
+      // --- CASE 0: ROOM_INFO PACKET (Retained presence from Host) ---
+      if (packet.type === 'ROOM_INFO' && this.role === 'guest') {
+        const hostName = packet.payload?.hostName || packet.playerName || 'Host Player';
+        if (packet.payload?.maxPlayers) {
+          this.maxPlayers = packet.payload.maxPlayers;
+        }
+        if (packet.payload?.roster) {
+          this.roster = packet.payload.roster;
+          this.emit('rosterUpdated', this.roster);
+        }
+
+        if (!this.isConnected) {
+          this.emit('statusChange', `Found ${hostName}'s room! Requesting slot...`);
+          this.publishPacket(topic, {
+            senderId: this.clientId,
+            senderRole: 'guest',
+            type: 'HELLO',
+            playerName: this.localPlayerName,
+            timestamp: Date.now()
+          });
+        }
+      }
 
       // --- CASE 1: HELLO PACKET ---
       if (packet.type === 'HELLO') {
@@ -630,12 +750,15 @@ export class P2PNetworkManager {
   }
 
   // High-reliability publishing via Paho MQTT with QoS 1
-  private publishPacket(topic: string, packet: NetworkPacket) {
+  private publishPacket(topic: string, packet: NetworkPacket, retained: boolean = false) {
     try {
       if (this.client && this.client.isConnected()) {
         const msg = new Paho.Message(JSON.stringify(packet));
         msg.destinationName = topic;
         msg.qos = 1;
+        if (retained) {
+          msg.retained = true;
+        }
         this.client.send(msg);
       }
     } catch (err) {
@@ -677,7 +800,7 @@ export class P2PNetworkManager {
         return;
       }
       attempts++;
-      if (attempts > 14) {
+      if (attempts > 30) {
         if (this.guestRetryInterval) clearInterval(this.guestRetryInterval);
         return;
       }
@@ -748,6 +871,10 @@ export class P2PNetworkManager {
 
   cleanup() {
     this.stopHeartbeat();
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
     if (this.presenceAnnouncementInterval) {
       clearInterval(this.presenceAnnouncementInterval);
       this.presenceAnnouncementInterval = null;
@@ -762,6 +889,15 @@ export class P2PNetworkManager {
     }
     if (this.client) {
       try {
+        if (this.role === 'host' && this.client.isConnected() && this.roomCode) {
+          const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
+          const topic = this.getTopic(cleanCode);
+          const emptyMsg = new Paho.Message('');
+          emptyMsg.destinationName = topic;
+          emptyMsg.retained = true;
+          emptyMsg.qos = 1;
+          this.client.send(emptyMsg);
+        }
         if (this.isConnected && this.roomCode) {
           const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
           this.publishPacket(this.getTopic(cleanCode), {

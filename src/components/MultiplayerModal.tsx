@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { P2PNetworkManager, networkManager } from '../utils/network';
 import { firebaseSync } from '../utils/firebaseSync';
+import { voiceManager } from '../utils/voiceChat';
 import { PlayerId, PLAYER_CONFIGS } from '../types/game';
 
 interface MultiplayerModalProps {
@@ -42,6 +43,32 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [networkStatus, setNetworkStatus] = useState<string>('');
+
+  // Voice Chat preference (saved in localStorage)
+  const [enableVoiceChat, setEnableVoiceChat] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('stickman_voice_enabled');
+      return saved !== null ? saved !== 'false' : true;
+    } catch {
+      return true;
+    }
+  });
+  const [voiceStatus, setVoiceStatus] = useState(() => voiceManager.getState());
+
+  useEffect(() => {
+    const unsub = voiceManager.subscribe((st) => setVoiceStatus(st));
+    return () => unsub();
+  }, []);
+
+  const handleToggleVoicePreference = (val: boolean) => {
+    setEnableVoiceChat(val);
+    try {
+      localStorage.setItem('stickman_voice_enabled', String(val));
+    } catch {}
+    if (!val && voiceManager.isJoined) {
+      voiceManager.leaveVoice();
+    }
+  };
 
   // Persistent Player Name State
   const [playerName, setPlayerName] = useState<string>(() => {
@@ -171,6 +198,10 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
       setRoomCode(networkManager.roomCode);
       setSelectedMaxPlayers(networkManager.maxPlayers);
 
+      if (enableVoiceChat) {
+        voiceManager.updateSlot(assignedId, playerName.trim() || 'Player');
+      }
+
       const namedRoster: Record<PlayerId, string> = {
         p1: hostName,
         p2: 'Waiting for Player 2...',
@@ -238,6 +269,10 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
       finalHostName,
       selectedMaxPlayers
     );
+
+    if (enableVoiceChat) {
+      voiceManager.joinVoice('p1', finalHostName);
+    }
   };
 
   // Host launches battle when ready
@@ -264,6 +299,11 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     setIsConnecting(true);
     setErrorMessage('');
     setNetworkStatus(`Connecting to room ${normalized.displayCode}...`);
+
+    if (enableVoiceChat) {
+      voiceManager.joinVoice('p2', cleanGuestName);
+    }
+
     onStartOnlineJoin(
       onlineType === 'firebase' ? 'online_firebase' : 'online_p2p',
       normalized.displayCode,
@@ -570,6 +610,57 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               </div>
             </div>
 
+            {/* Live Voice Chat Option */}
+            <div
+              onClick={() => handleToggleVoicePreference(!enableVoiceChat)}
+              className={`p-2.5 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between ${
+                enableVoiceChat
+                  ? 'bg-emerald-50/90 border-emerald-600 shadow-xs'
+                  : 'bg-slate-50 border-slate-300'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg border ${
+                    enableVoiceChat
+                      ? 'bg-emerald-500 border-emerald-700 text-white'
+                      : 'bg-slate-200 border-slate-400 text-slate-500'
+                  }`}
+                >
+                  {enableVoiceChat ? '🎙️' : '🔇'}
+                </div>
+                <div>
+                  <div className="text-xs font-black font-retro text-[#0f172a] flex items-center gap-1.5">
+                    ENABLE LIVE VOICE CHAT
+                    <span
+                      className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-black ${
+                        enableVoiceChat ? 'bg-emerald-200 text-emerald-900' : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {enableVoiceChat ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono font-bold text-slate-500">
+                    {enableVoiceChat
+                      ? 'Auto-connect microphone to talk with players'
+                      : 'Microphone disabled (tap to enable)'}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={`w-11 h-6 rounded-full p-0.5 border-2 border-[#0f172a] transition-colors ${
+                  enableVoiceChat ? 'bg-emerald-500' : 'bg-slate-300'
+                }`}
+              >
+                <div
+                  className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                    enableVoiceChat ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </div>
+            </div>
+
             {/* Buttons */}
             <div className="flex gap-2 pt-1">
               <button
@@ -620,6 +711,76 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 >
                   <span>{copyLinkSuccess ? '✓ LINK COPIED!' : '🔗 SHARE INVITE LINK'}</span>
                 </button>
+              </div>
+            </div>
+
+            {/* Live Voice Chat Lobby Bar */}
+            <div className="p-2.5 rounded-2xl border-2 border-[#0f172a] bg-slate-50 flex items-center justify-between shadow-xs">
+              <div className="flex items-center gap-2">
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm border ${
+                    voiceStatus.isJoined
+                      ? voiceStatus.isMuted
+                        ? 'bg-rose-100 border-rose-300 text-rose-700'
+                        : 'bg-emerald-500 border-emerald-600 text-white animate-pulse'
+                      : 'bg-slate-200 border-slate-300 text-slate-500'
+                  }`}
+                >
+                  {voiceStatus.isJoined ? (voiceStatus.isMuted ? '🔇' : '🎙️') : '🔈'}
+                </div>
+                <div>
+                  <div className="text-xs font-black font-retro text-[#0f172a] flex items-center gap-1.5">
+                    {voiceStatus.isJoined ? 'VOICE CHAT CONNECTED' : 'VOICE CHAT OFF'}
+                    {voiceStatus.isJoined && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">
+                        {voiceStatus.activePeersCount} IN CALL
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-500">
+                    {voiceStatus.isJoined
+                      ? voiceStatus.isMuted
+                        ? 'Your mic is muted (tap Unmute)'
+                        : 'Mic is live • Talk while waiting for players!'
+                      : 'Tap Join to speak with other players'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {voiceStatus.isJoined ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => voiceManager.toggleMute()}
+                      className={`btn-retro px-2.5 py-1 rounded-xl text-[10px] font-black border ${
+                        voiceStatus.isMuted
+                          ? 'bg-rose-500 text-white border-rose-700'
+                          : 'bg-emerald-500 text-white border-emerald-700'
+                      }`}
+                    >
+                      {voiceStatus.isMuted ? 'UNMUTE' : 'MUTE'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => voiceManager.leaveVoice()}
+                      className="btn-retro px-2 py-1 rounded-xl text-[10px] font-black bg-slate-200 text-slate-700 border border-slate-400"
+                    >
+                      LEAVE
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleToggleVoicePreference(true);
+                      voiceManager.joinVoice('p1', playerName.trim() || 'Host');
+                    }}
+                    className="btn-retro px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-[10px] font-black shadow-xs border border-emerald-700"
+                  >
+                    🎙️ JOIN VOICE
+                  </button>
+                )}
               </div>
             </div>
 
@@ -808,6 +969,76 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               <p className="text-[11px] font-hand font-bold text-slate-600">
                 Hosted by <strong className="text-blue-900">{hostCommanderName || connectedRoster.p1}</strong> • {selectedMaxPlayers}-Player Battle
               </p>
+            </div>
+
+            {/* Live Voice Chat Lobby Bar */}
+            <div className="p-2.5 rounded-2xl border-2 border-[#0f172a] bg-slate-50 flex items-center justify-between shadow-xs">
+              <div className="flex items-center gap-2">
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm border ${
+                    voiceStatus.isJoined
+                      ? voiceStatus.isMuted
+                        ? 'bg-rose-100 border-rose-300 text-rose-700'
+                        : 'bg-emerald-500 border-emerald-600 text-white animate-pulse'
+                      : 'bg-slate-200 border-slate-300 text-slate-500'
+                  }`}
+                >
+                  {voiceStatus.isJoined ? (voiceStatus.isMuted ? '🔇' : '🎙️') : '🔈'}
+                </div>
+                <div>
+                  <div className="text-xs font-black font-retro text-[#0f172a] flex items-center gap-1.5">
+                    {voiceStatus.isJoined ? 'VOICE CHAT CONNECTED' : 'VOICE CHAT OFF'}
+                    {voiceStatus.isJoined && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">
+                        {voiceStatus.activePeersCount} IN CALL
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-500">
+                    {voiceStatus.isJoined
+                      ? voiceStatus.isMuted
+                        ? 'Your mic is muted (tap Unmute)'
+                        : 'Mic is live • Talk while waiting for players!'
+                      : 'Tap Join to speak with other players'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {voiceStatus.isJoined ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => voiceManager.toggleMute()}
+                      className={`btn-retro px-2.5 py-1 rounded-xl text-[10px] font-black border ${
+                        voiceStatus.isMuted
+                          ? 'bg-rose-500 text-white border-rose-700'
+                          : 'bg-emerald-500 text-white border-emerald-700'
+                      }`}
+                    >
+                      {voiceStatus.isMuted ? 'UNMUTE' : 'MUTE'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => voiceManager.leaveVoice()}
+                      className="btn-retro px-2 py-1 rounded-xl text-[10px] font-black bg-slate-200 text-slate-700 border border-slate-400"
+                    >
+                      LEAVE
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleToggleVoicePreference(true);
+                      voiceManager.joinVoice(assignedSlot, playerName.trim() || 'Player');
+                    }}
+                    className="btn-retro px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-[10px] font-black shadow-xs border border-emerald-700"
+                  >
+                    🎙️ JOIN VOICE
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Guest's Assigned Squad Card */}
@@ -1040,27 +1271,94 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               </div>
             </div>
 
+            {/* Live Voice Chat Preference Toggle on Join */}
+            <div
+              onClick={() => handleToggleVoicePreference(!enableVoiceChat)}
+              className={`p-2.5 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between ${
+                enableVoiceChat
+                  ? 'bg-emerald-50/90 border-emerald-600 shadow-xs'
+                  : 'bg-slate-50 border-slate-300'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg border ${
+                    enableVoiceChat
+                      ? 'bg-emerald-500 border-emerald-700 text-white'
+                      : 'bg-slate-200 border-slate-400 text-slate-500'
+                  }`}
+                >
+                  {enableVoiceChat ? '🎙️' : '🔇'}
+                </div>
+                <div>
+                  <div className="text-xs font-black font-retro text-[#0f172a] flex items-center gap-1.5">
+                    ENABLE LIVE VOICE CHAT
+                    <span
+                      className={`text-[9px] font-mono px-1.5 py-0.2 rounded font-black ${
+                        enableVoiceChat ? 'bg-emerald-200 text-emerald-900' : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {enableVoiceChat ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+                  <div className="text-[10px] font-mono font-bold text-slate-500">
+                    {enableVoiceChat
+                      ? 'Talk with players using microphone'
+                      : 'Microphone disabled (tap to enable)'}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={`w-11 h-6 rounded-full p-0.5 border-2 border-[#0f172a] transition-colors ${
+                  enableVoiceChat ? 'bg-emerald-500' : 'bg-slate-300'
+                }`}
+              >
+                <div
+                  className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                    enableVoiceChat ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </div>
+            </div>
+
             <div className="flex justify-center gap-2 pt-1">
               <button
                 onClick={() => {
                   setIsConnecting(false);
                   setActiveTab('modes');
                 }}
-                className="btn-retro px-4 py-1.5 bg-white text-[#0f172a] rounded-xl text-xs font-black"
+                className="btn-retro px-4 py-2 bg-white text-[#0f172a] rounded-xl text-xs font-black"
               >
                 BACK
               </button>
-              <button
-                onClick={submitJoin}
-                disabled={isConnecting || !playerName.trim() || !inputCode.trim()}
-                className={`btn-retro px-5 py-1.5 rounded-xl text-xs font-black transition-all ${
-                  isConnecting || !playerName.trim() || !inputCode.trim()
-                    ? 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed shadow-none'
-                    : 'bg-amber-400 hover:bg-amber-300 text-[#0f172a] shadow-xs'
-                }`}
-              >
-                {isConnecting ? 'CONNECTING...' : '⚔️ JOIN MATCH'}
-              </button>
+              {errorMessage && !isConnecting ? (
+                <button
+                  onClick={submitJoin}
+                  disabled={!playerName.trim() || !inputCode.trim()}
+                  className="btn-retro px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5"
+                >
+                  <span>🔄</span> RETRY JOIN
+                </button>
+              ) : (
+                <button
+                  onClick={submitJoin}
+                  disabled={isConnecting || !playerName.trim() || !inputCode.trim()}
+                  className={`btn-retro px-5 py-2 rounded-xl text-xs font-black transition-all ${
+                    isConnecting || !playerName.trim() || !inputCode.trim()
+                      ? 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed shadow-none'
+                      : 'bg-amber-400 hover:bg-amber-300 text-[#0f172a] shadow-xs'
+                  }`}
+                >
+                  {isConnecting ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="animate-spin text-sm">⏳</span> CONNECTING...
+                    </span>
+                  ) : (
+                    '⚔️ JOIN MATCH'
+                  )}
+                </button>
+              )}
             </div>
 
             <div className="text-center pt-1">

@@ -212,6 +212,24 @@ export class VoiceChatManager {
     this.notify();
   }
 
+  // Update assigned player slot
+  public updateSlot(newSlot: PlayerId, newName?: string) {
+    this.mySlot = newSlot;
+    if (newName) {
+      this.myPlayerName = newName;
+    }
+    if (this.isJoined && this.localStream) {
+      networkManager.sendVoiceSignal({
+        signalType: 'join',
+        fromClientId: this.myClientId,
+        slot: this.mySlot,
+        playerName: this.myPlayerName,
+        isMuted: this.isMuted
+      });
+      this.notify();
+    }
+  }
+
   // Toggle Mute / Unmute
   public toggleMute(): boolean {
     if (!this.localStream) return this.isMuted;
