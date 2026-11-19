@@ -430,7 +430,7 @@ export const App: React.FC = () => {
     broadcastState(nextState);
   };
 
-  // Step 2: Complete Attack (Fair 50/50 Balance: Weapon Consumed + Weapon Clash Defense)
+  // Step 2: Complete Attack (Game Rule: 1 attack immediately ELIMINATES the target stickman!)
   const handleAnimationComplete = () => {
     const currentState = gameStateRef.current;
     const { attackAnim, players, currentTurn } = currentState;
@@ -442,9 +442,8 @@ export const App: React.FC = () => {
     const targetCell = victim.cells[targetRow];
     const attackerCell = attacker.cells[fromRow];
 
-    // FAIR 50/50 BALANCE RULE 1:
     // Attacker's weapon is spent in the strike!
-    // The attacker's stickman remains assembled (Stage 5 - READY), but loses the weapon.
+    // The attacker's stickman remains assembled (Stage 5 - READY), but loses the weapon so they must roll again to re-arm.
     const updatedAttackerCells = {
       ...attacker.cells,
       [fromRow]: {
@@ -454,29 +453,16 @@ export const App: React.FC = () => {
       }
     };
 
-    let updatedVictimCells = { ...victim.cells };
-    let isClash = false;
-
-    // FAIR 50/50 BALANCE RULE 2:
-    // Weapon Clash Defense! If target lane is ALSO armed (Stage 6), the weapons CLASH!
-    // Both weapons shatter, but the target lane is SAVED from destruction!
-    if (targetCell.stage === 6 && !targetCell.isDestroyed) {
-      isClash = true;
-      sounds.playClash();
-      updatedVictimCells[targetRow] = {
-        ...targetCell,
-        stage: 5 as StickmanStage,
-        weapon: undefined,
-        isDestroyed: false
-      };
-    } else {
-      // Unarmed target lane is destroyed
-      sounds.playDestroyScribble();
-      updatedVictimCells[targetRow] = {
+    // GAME RULE: ONE STRIKE ELIMINATES THE TARGET STICKMAN!
+    // Even if the target stickman has a weapon, it is 100% ELIMINATED!
+    sounds.playDestroyScribble();
+    const updatedVictimCells = {
+      ...victim.cells,
+      [targetRow]: {
         ...targetCell,
         isDestroyed: true
-      };
-    }
+      }
+    };
 
     const nextPlayers = {
       ...players,
@@ -503,9 +489,7 @@ export const App: React.FC = () => {
       winner: isWin ? currentTurn : null,
       log: [
         ...currentState.log,
-        isClash
-          ? `⚔️ WEAPON CLASH! ${attacker.name}'s weapon clashed with ${victim.name}'s weapon! Both shattered, but Lane #${targetRow} was SAVED!`
-          : `❌ ${victim.name}'s Lane #${targetRow} was DESTROYED! (${attacker.name}'s weapon was spent in the blast)`,
+        `💥 ${attacker.name}'s Stickman #${fromRow} ELIMINATED ${victim.name}'s Lane #${targetRow}!`,
         ...(isWin ? [`🏆 VICTORY! ${attacker.name} conquered the notebook!`] : [])
       ]
     };

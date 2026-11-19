@@ -54,16 +54,16 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose }) => {
           {/* 50/50 Balance Section */}
           <div className="p-2.5 rounded-xl bg-blue-50 border-2 border-blue-400">
             <h3 className="font-black text-sm text-blue-900 flex items-center gap-1.5">
-              <span>⚖️</span> 50/50 FAIR COMBAT & ANTI-SNOWBALL RULES:
+              <span>⚖️</span> 50/50 FAIR COMBAT & GAME RULES:
             </h3>
             <ul className="space-y-1.5 mt-1.5 text-xs">
               <li className="flex items-start gap-2">
-                <span className="px-1.5 py-0.2 rounded bg-blue-200 border border-blue-700 text-blue-950 font-black text-[9px] shrink-0">1-USE WEAPON</span>
-                <span><strong>Weapon Durability:</strong> Attacking consumes your weapon! The stickman stays alive (Stage 5 Assembled), but must re-arm to attack again. This prevents infinite attack spam!</span>
+                <span className="px-1.5 py-0.2 rounded bg-rose-200 border border-rose-700 text-rose-950 font-black text-[9px] shrink-0">1-HIT K.O.</span>
+                <span><strong>Instant Elimination:</strong> A single attack completely ELIMINATES the targeted opponent stickman (whether armed or unarmed)!</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="px-1.5 py-0.2 rounded bg-amber-200 border border-amber-700 text-amber-950 font-black text-[9px] shrink-0">DEFENSE</span>
-                <span><strong>Weapon Clash:</strong> If you strike an opponent lane that is ALSO armed, the weapons CLASH! Both weapons shatter, and the target lane is SAVED from death!</span>
+                <span className="px-1.5 py-0.2 rounded bg-blue-200 border border-blue-700 text-blue-950 font-black text-[9px] shrink-0">1-USE WEAPON</span>
+                <span><strong>Weapon Durability:</strong> Attacking consumes your weapon! Your stickman remains assembled (Stage 5), but must roll again to equip a new weapon before attacking again.</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="px-1.5 py-0.2 rounded bg-emerald-200 border border-emerald-700 text-emerald-950 font-black text-[9px] shrink-0">COMEBACK</span>
