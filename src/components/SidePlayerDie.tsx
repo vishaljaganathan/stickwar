@@ -73,29 +73,28 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
 
         {/* 3D Tactile Die Cube */}
         <div
-          className={`relative bg-gradient-to-br from-white to-slate-100 rounded-xl sm:rounded-2xl border-2 sm:border-3 border-[#0f172a] shadow-[0_4px_12px_rgba(0,0,0,0.35)] flex items-center justify-center transition-all ${
+          className={`relative rounded-xl sm:rounded-2xl border-2 sm:border-3 border-[#0f172a] shadow-[0_4px_12px_rgba(0,0,0,0.35)] flex items-center justify-center transition-all ${
+            isLocked
+              ? 'bg-slate-100/90 opacity-80 cursor-not-allowed'
+              : 'bg-gradient-to-br from-white to-slate-100 hover:scale-105 active:scale-95'
+          } ${
             isCompact
               ? 'w-9 h-9 xs:w-10 xs:h-10 sm:w-13 sm:h-13'
               : 'w-10 h-10 xs:w-12 xs:h-12 sm:w-15 sm:h-15 md:w-17 md:h-17'
-          } ${isRolling ? 'animate-die-tumble' : ''} ${
-            !isLocked && isCurrentTurn ? 'hover:scale-105 active:scale-95' : ''
-          }`}
+          } ${isRolling ? 'animate-die-tumble' : ''}`}
         >
-          {/* Iron Chains / Lock Overlay */}
+          {/* Subtle Corner Lock Pin */}
           {isLocked && (
-            <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px] rounded-xl sm:rounded-2xl flex flex-col items-center justify-center z-20">
-              <span className="text-xs sm:text-base">🔒</span>
-              <span className="text-[6px] sm:text-[7px] font-mono font-black text-slate-300 tracking-tighter hidden xs:inline">
-                WAIT
-              </span>
-            </div>
+            <span className="absolute -top-1.5 -right-1.5 text-[10px] sm:text-xs z-20 select-none filter drop-shadow">
+              🔒
+            </span>
           )}
 
           {/* Golden Die Edge Glints */}
           <span className="absolute top-0.5 left-1 text-[6px] text-slate-300 font-mono hidden sm:inline">✦</span>
           <span className="absolute bottom-0.5 right-1 text-[6px] text-slate-300 font-mono hidden sm:inline">✦</span>
 
-          {/* Die Digit */}
+          {/* Die Digit (Always clearly visible showing the last rolled number) */}
           <span
             className={`font-retro font-black leading-none select-none drop-shadow-sm ${
               isCompact ? 'text-xl xs:text-2xl sm:text-3xl' : 'text-2xl xs:text-3xl sm:text-4xl md:text-5xl'
@@ -108,7 +107,7 @@ export const SidePlayerDie: React.FC<SidePlayerDieProps> = ({
           </span>
 
           {/* Odd/Even Badge */}
-          {isNumeric && !isRolling && !isLocked && (
+          {isNumeric && !isRolling && (
             <span
               className={`absolute -bottom-1 px-0.5 sm:px-1 rounded border border-[#0f172a] text-[6px] sm:text-[7px] font-retro font-black shadow-xs ${
                 isOdd ? 'bg-amber-400 text-slate-950' : 'bg-emerald-400 text-slate-950'

@@ -213,11 +213,16 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
   // Step 1: Host launches room after picking player count and name
   const handleLaunchRoom = () => {
+    const finalHostName = playerName.trim();
+    if (!finalHostName) {
+      setErrorMessage('Please enter your Commander Name before creating a room!');
+      return;
+    }
+
     const code = P2PNetworkManager.generateRoomCode();
     setRoomCode(code);
     setActiveTab('host');
     setErrorMessage('');
-    const finalHostName = playerName.trim() || 'Player 1';
 
     setConnectedRoster({
       p1: finalHostName,
@@ -245,6 +250,12 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
   // Guest clicks Join Match
   const submitJoin = () => {
+    const cleanGuestName = playerName.trim();
+    if (!cleanGuestName) {
+      setErrorMessage('Please enter your Commander Name before joining the match!');
+      return;
+    }
+
     const normalized = P2PNetworkManager.normalizeRoomCode(inputCode);
     if (!normalized.cleanCode) {
       setErrorMessage('Please enter a valid room code (e.g. SM-7492)');
@@ -252,12 +263,11 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     }
     setIsConnecting(true);
     setErrorMessage('');
-    const defaultGuestName = playerName.trim() || 'Player 2';
-    setNetworkStatus(`Connecting to room ${normalized.displayCode} on Port 443...`);
+    setNetworkStatus(`Connecting to room ${normalized.displayCode}...`);
     onStartOnlineJoin(
       onlineType === 'firebase' ? 'online_firebase' : 'online_p2p',
       normalized.displayCode,
-      defaultGuestName
+      cleanGuestName
     );
   };
 
@@ -484,14 +494,21 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           <div className="py-2 space-y-3 font-retro">
             {/* Step 1: Host Name Input */}
             <div className="p-3 bg-blue-50 border-2 border-[#0f172a] rounded-2xl space-y-1">
-              <label className="block text-[10px] font-mono font-black text-blue-950 uppercase tracking-wider">
-                YOUR COMMANDER NAME:
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block text-[10px] font-mono font-black text-blue-950 uppercase tracking-wider">
+                  YOUR COMMANDER NAME: <span className="text-rose-600">*</span>
+                </label>
+                <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                  playerName.trim() ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-rose-100 text-rose-800 border-rose-300 animate-pulse'
+                }`}>
+                  {playerName.trim() ? '✓ READY' : 'REQUIRED'}
+                </span>
+              </div>
               <input
                 type="text"
                 value={playerName}
                 onChange={(e) => savePlayerName(e.target.value)}
-                placeholder="Enter host name (e.g. Vishal)"
+                placeholder="Enter host name (e.g. Vishal, Sasithra)"
                 maxLength={14}
                 className="w-full text-base font-retro font-black text-blue-950 bg-white border-2 border-[#0f172a] rounded-xl py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-amber-400 shadow-xs"
               />
@@ -565,7 +582,12 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               <button
                 type="button"
                 onClick={handleLaunchRoom}
-                className="btn-retro flex-2 py-2 bg-amber-400 hover:bg-amber-300 text-[#0f172a] rounded-xl text-xs font-black shadow-[2px_2px_0px_#0f172a]"
+                disabled={!playerName.trim()}
+                className={`btn-retro flex-2 py-2 rounded-xl text-xs font-black transition-all ${
+                  !playerName.trim()
+                    ? 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed shadow-none'
+                    : 'bg-amber-400 hover:bg-amber-300 text-[#0f172a] shadow-[2px_2px_0px_#0f172a]'
+                }`}
               >
                 GENERATE {selectedMaxPlayers}-PLAYER ROOM ➔
               </button>
@@ -969,9 +991,16 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           <div className="py-2 space-y-3 font-retro">
             {/* Step 1: Commander Name */}
             <div className="p-3 bg-amber-50 border-2 border-[#0f172a] rounded-2xl space-y-1">
-              <label className="block text-[10px] font-mono font-black text-amber-950 uppercase tracking-wider">
-                YOUR COMMANDER NAME:
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block text-[10px] font-mono font-black text-amber-950 uppercase tracking-wider">
+                  YOUR COMMANDER NAME: <span className="text-rose-600">*</span>
+                </label>
+                <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                  playerName.trim() ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-rose-100 text-rose-800 border-rose-300 animate-pulse'
+                }`}>
+                  {playerName.trim() ? '✓ READY' : 'REQUIRED'}
+                </span>
+              </div>
               <input
                 type="text"
                 value={playerName}
@@ -1023,9 +1052,11 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
               </button>
               <button
                 onClick={submitJoin}
-                disabled={isConnecting}
-                className={`btn-retro px-5 py-1.5 text-[#0f172a] rounded-xl text-xs font-black ${
-                  isConnecting ? 'bg-amber-200 cursor-not-allowed' : 'bg-amber-400 hover:bg-amber-300'
+                disabled={isConnecting || !playerName.trim() || !inputCode.trim()}
+                className={`btn-retro px-5 py-1.5 rounded-xl text-xs font-black transition-all ${
+                  isConnecting || !playerName.trim() || !inputCode.trim()
+                    ? 'bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed shadow-none'
+                    : 'bg-amber-400 hover:bg-amber-300 text-[#0f172a] shadow-xs'
                 }`}
               >
                 {isConnecting ? 'CONNECTING...' : '⚔️ JOIN MATCH'}
@@ -1034,7 +1065,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
             <div className="text-center pt-1">
               <span className="text-[10px] font-mono text-slate-400">
-                Direct Port 443 relay • Supports 2, 3, or 4 players
+                High-speed WSS relay • Supports 2, 3, or 4 players
               </span>
             </div>
           </div>

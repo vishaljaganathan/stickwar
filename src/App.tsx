@@ -18,7 +18,6 @@ import { NotebookHeader } from './components/NotebookHeader';
 import { NotebookGrid } from './components/NotebookGrid';
 import { SidePlayerDie } from './components/SidePlayerDie';
 import { BattleStatus } from './components/BattleStatus';
-import { DiceAnnouncementOverlay } from './components/DiceAnnouncementOverlay';
 import { WeaponSelectModal } from './components/WeaponSelectModal';
 import { AttackAnimationOverlay } from './components/AttackAnimationOverlay';
 import { VictoryModal } from './components/VictoryModal';
@@ -145,7 +144,7 @@ export const App: React.FC = () => {
     }, 85);
   };
 
-  // Roll Resolution (Shows center reveal for 1.2s to all players, then executes action)
+  // Roll Resolution (Immediately executes roll outcome and updates player die)
   const handleRollResolution = (playerId: PlayerId, rolledNumber: DiceRoll) => {
     const currentState = gameStateRef.current;
     if (currentState.currentTurn !== playerId) return;
@@ -157,40 +156,21 @@ export const App: React.FC = () => {
     // Case 1: ODD NUMBER (1, 3, 5, 7, 9) -> Turn skipped!
     if (rolledNumber % 2 !== 0) {
       sounds.playOddRoll();
-      const announcement: RollAnnouncement = {
-        playerId,
-        roll: rolledNumber,
-        type: 'odd_miss',
-        title: '⚠️ ODD ROLL — TURN SKIPPED',
-        subtitle: `${activePlayer.name} must wait for an even number next turn.`
-      };
-
-      const revealState: GameState = {
+      const nextState: GameState = {
         ...currentState,
         lastRoll: rolledNumber,
         lastRollPlayer: playerId,
-        rollAnnouncement: announcement,
-        phase: 'revealing_roll'
+        currentTurn: nextTurn,
+        phase: 'turn_ready',
+        rollAnnouncement: null,
+        pendingRowTarget: null,
+        log: [
+          ...currentState.log,
+          `⚠️ ${activePlayer.name} rolled ODD (${rolledNumber})! Missed turn — wait for an even number next time!`
+        ]
       };
-      setGameState(revealState);
-      broadcastState(revealState);
-
-      setTimeout(() => {
-        const cur = gameStateRef.current;
-        const nextState: GameState = {
-          ...cur,
-          currentTurn: nextTurn,
-          phase: 'turn_ready',
-          rollAnnouncement: null,
-          pendingRowTarget: null,
-          log: [
-            ...cur.log,
-            `⚠️ ${activePlayer.name} rolled ODD (${rolledNumber})! Missed turn — wait for an even number next time!`
-          ]
-        };
-        setGameState(nextState);
-        broadcastState(nextState);
-      }, 1200);
+      setGameState(nextState);
+      broadcastState(nextState);
       return;
     }
 
@@ -201,39 +181,20 @@ export const App: React.FC = () => {
     // Case 2: Target row is ALREADY DESTROYED -> Dead Roll with Adrenaline Re-roll!
     if (targetCell.isDestroyed) {
       sounds.playDeadRoll();
-      const announcement: RollAnnouncement = {
-        playerId,
-        roll: rolledNumber,
-        type: 'dead_roll',
-        title: '💀 LANE DESTROYED — ADRENALINE RE-ROLL!',
-        subtitle: `${activePlayer.name} gets a free re-roll to stay in the battle!`
-      };
-
-      const revealState: GameState = {
+      const nextState: GameState = {
         ...currentState,
         lastRoll: rolledNumber,
         lastRollPlayer: playerId,
-        rollAnnouncement: announcement,
-        phase: 'revealing_roll'
+        phase: 'turn_ready',
+        rollAnnouncement: null,
+        pendingRowTarget: null,
+        log: [
+          ...currentState.log,
+          `💀 ${activePlayer.name} rolled #${targetRow} (Destroyed)! Adrenaline Re-roll awarded!`
+        ]
       };
-      setGameState(revealState);
-      broadcastState(revealState);
-
-      setTimeout(() => {
-        const cur = gameStateRef.current;
-        const nextState: GameState = {
-          ...cur,
-          phase: 'turn_ready',
-          rollAnnouncement: null,
-          pendingRowTarget: null,
-          log: [
-            ...cur.log,
-            `💀 ${activePlayer.name} rolled #${targetRow} (Destroyed)! Adrenaline Re-roll awarded!`
-          ]
-        };
-        setGameState(nextState);
-        broadcastState(nextState);
-      }, 1200);
+      setGameState(nextState);
+      broadcastState(nextState);
       return;
     }
 
@@ -250,136 +211,77 @@ export const App: React.FC = () => {
       };
       const stageDescription = stageNames[newStage] || `Stage ${newStage}`;
 
-      const announcement: RollAnnouncement = {
-        playerId,
-        roll: rolledNumber,
-        type: 'even_draw',
-        title: `✏️ LANE #${targetRow} — ${stageDescription.toUpperCase()}`,
-        subtitle: `${activePlayer.name} drew ${stageDescription}!`,
-        stageName: stageDescription
+      const nextTargetCells = {
+        ...activePlayer.cells,
+        [targetRow]: {
+          ...activePlayer.cells[targetRow],
+          stage: newStage
+        }
+      };
+      const nextPlayers = {
+        ...players,
+        [currentTurn]: {
+          ...activePlayer,
+          cells: nextTargetCells
+        }
       };
 
-      const revealState: GameState = {
+      const nextState: GameState = {
         ...currentState,
+        players: nextPlayers,
         lastRoll: rolledNumber,
         lastRollPlayer: playerId,
-        rollAnnouncement: announcement,
-        phase: 'revealing_roll'
+        currentTurn: nextTurn,
+        phase: 'turn_ready',
+        rollAnnouncement: null,
+        pendingRowTarget: null,
+        log: [
+          ...currentState.log,
+          `✏️ ${activePlayer.name} rolled ${targetRow}: Drew ${stageDescription} on Lane #${targetRow}! (${newStage}/5 parts)`
+        ]
       };
-      setGameState(revealState);
-      broadcastState(revealState);
-
-      setTimeout(() => {
-        const cur = gameStateRef.current;
-        const curActive = cur.players[cur.currentTurn];
-        const nextTargetCells = {
-          ...curActive.cells,
-          [targetRow]: {
-            ...curActive.cells[targetRow],
-            stage: newStage
-          }
-        };
-        const nextPlayers = {
-          ...cur.players,
-          [cur.currentTurn]: {
-            ...curActive,
-            cells: nextTargetCells
-          }
-        };
-
-        const nextState: GameState = {
-          ...cur,
-          players: nextPlayers,
-          currentTurn: nextTurn,
-          phase: 'turn_ready',
-          rollAnnouncement: null,
-          pendingRowTarget: null,
-          log: [
-            ...cur.log,
-            `✏️ ${activePlayer.name} rolled ${targetRow}: Drew ${stageDescription} on Lane #${targetRow}!`
-          ]
-        };
-        setGameState(nextState);
-        broadcastState(nextState);
-      }, 1200);
+      setGameState(nextState);
+      broadcastState(nextState);
       return;
     }
 
     // Case 4: Stickman Stage 5 (Fully assembled body) -> Trigger Weapon Selection
     if (targetCell.stage === 5) {
       sounds.playDiceRoll();
-      const announcement: RollAnnouncement = {
-        playerId,
-        roll: rolledNumber,
-        type: 'even_arm',
-        title: `⚔️ LANE #${targetRow} — STICKMAN ASSEMBLED!`,
-        subtitle: `${activePlayer.name} unlocked the weapon armory!`
-      };
-
-      const revealState: GameState = {
+      const nextState: GameState = {
         ...currentState,
         lastRoll: rolledNumber,
         lastRollPlayer: playerId,
-        rollAnnouncement: announcement,
-        phase: 'revealing_roll'
+        pendingRowTarget: targetRow,
+        phase: 'weapon_select',
+        rollAnnouncement: null,
+        log: [
+          ...currentState.log,
+          `⚔️ ${activePlayer.name} rolled ${targetRow}: Stickman #${targetRow} is ready! Choose a weapon from the armory.`
+        ]
       };
-      setGameState(revealState);
-      broadcastState(revealState);
-
-      setTimeout(() => {
-        const cur = gameStateRef.current;
-        const nextState: GameState = {
-          ...cur,
-          pendingRowTarget: targetRow,
-          phase: 'weapon_select',
-          rollAnnouncement: null,
-          log: [
-            ...cur.log,
-            `⚔️ ${activePlayer.name} rolled ${targetRow}: Stickman #${targetRow} is ready! Choose a weapon from the armory.`
-          ]
-        };
-        setGameState(nextState);
-        broadcastState(nextState);
-      }, 1200);
+      setGameState(nextState);
+      broadcastState(nextState);
       return;
     }
 
     // Case 5: Stickman Stage 6 (Armed with weapon) -> Trigger Attack Phase!
     if (targetCell.stage === 6) {
       sounds.playDiceRoll();
-      const announcement: RollAnnouncement = {
-        playerId,
-        roll: rolledNumber,
-        type: 'even_attack',
-        title: `🎯 LANE #${targetRow} — ATTACK READY!`,
-        subtitle: `${activePlayer.name} is targeting an enemy lane to strike!`
-      };
-
-      const revealState: GameState = {
+      const nextState: GameState = {
         ...currentState,
         lastRoll: rolledNumber,
         lastRollPlayer: playerId,
-        rollAnnouncement: announcement,
-        phase: 'revealing_roll'
+        pendingRowTarget: targetRow,
+        phase: 'attack_target',
+        rollAnnouncement: null,
+        log: [
+          ...currentState.log,
+          `🎯 ${activePlayer.name} rolled ${targetRow}: Armed Stickman ready! Tap an enemy lane to strike!`
+        ]
       };
-      setGameState(revealState);
-      broadcastState(revealState);
-
-      setTimeout(() => {
-        const cur = gameStateRef.current;
-        const nextState: GameState = {
-          ...cur,
-          pendingRowTarget: targetRow,
-          phase: 'attack_target',
-          rollAnnouncement: null,
-          log: [
-            ...cur.log,
-            `🎯 ${activePlayer.name} rolled ${targetRow}: Armed Stickman ready! Tap an enemy lane to strike!`
-          ]
-        };
-        setGameState(nextState);
-        broadcastState(nextState);
-      }, 1200);
+      setGameState(nextState);
+      broadcastState(nextState);
       return;
     }
   };
@@ -985,12 +887,6 @@ export const App: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* Center Screen Dice Result Reveal Overlay (Visible to all players for 1.2s) */}
-      <DiceAnnouncementOverlay
-        announcement={gameState.rollAnnouncement}
-        players={gameState.players}
-      />
 
       {/* Weapon Attack Animation Overlay */}
       <AttackAnimationOverlay
