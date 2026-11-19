@@ -1,9 +1,9 @@
 import React from 'react';
-import { RollAnnouncement, PlayerState } from '../types/game';
+import { RollAnnouncement, PlayerId, PlayerState } from '../types/game';
 
 interface DiceAnnouncementOverlayProps {
   announcement: RollAnnouncement | null;
-  players: Record<'p1' | 'p2', PlayerState>;
+  players: Record<PlayerId, PlayerState>;
 }
 
 export const DiceAnnouncementOverlay: React.FC<DiceAnnouncementOverlayProps> = ({
@@ -14,7 +14,6 @@ export const DiceAnnouncementOverlay: React.FC<DiceAnnouncementOverlayProps> = (
 
   const { playerId, roll, type, title, subtitle, stageName } = announcement;
   const player = players[playerId];
-  const isP1 = playerId === 'p1';
   const isOdd = roll % 2 !== 0;
 
   return (
@@ -23,17 +22,17 @@ export const DiceAnnouncementOverlay: React.FC<DiceAnnouncementOverlayProps> = (
         {/* Retro Top Color Ribbon */}
         <div
           className="absolute top-0 left-0 right-0 h-4 border-b-2 border-[#0f172a]"
-          style={{ backgroundColor: isP1 ? '#3b82f6' : '#ef4444' }}
+          style={{ backgroundColor: player?.inkColor || '#3b82f6' }}
         />
 
         {/* Roller Header Badge */}
         <div className="mt-1 mb-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900 text-white border-2 border-[#0f172a] shadow-xs">
           <span
             className="w-2.5 h-2.5 rounded-full"
-            style={{ backgroundColor: isP1 ? '#60a5fa' : '#f87171' }}
+            style={{ backgroundColor: player?.inkColor || '#60a5fa' }}
           />
           <span className="font-retro font-black text-xs uppercase tracking-wider">
-            {player.name} ROLLED
+            {player?.name || 'PLAYER'} ROLLED
           </span>
         </div>
 
@@ -43,7 +42,7 @@ export const DiceAnnouncementOverlay: React.FC<DiceAnnouncementOverlayProps> = (
             <span
               className="font-retro font-black text-6xl sm:text-7xl leading-none select-none drop-shadow-md"
               style={{
-                color: isOdd ? '#d97706' : isP1 ? '#1d4ed8' : '#dc2626'
+                color: isOdd ? '#d97706' : player?.inkColor || '#1d4ed8'
               }}
             >
               {roll}

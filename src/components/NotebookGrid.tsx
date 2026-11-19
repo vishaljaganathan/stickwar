@@ -1,11 +1,11 @@
 import React from 'react';
-import { GameState, RowIndex, ROW_NUMBERS, PlayerId } from '../types/game';
+import { GameState, RowIndex, ROW_NUMBERS, PlayerId, PLAYER_CONFIGS } from '../types/game';
 import { StickmanCell } from './StickmanCell';
 
 interface NotebookGridProps {
   gameState: GameState;
   onAttackCell: (targetPlayerId: PlayerId, targetRow: RowIndex) => void;
-  localPlayerId?: PlayerId;
+  localPlayerId?: PlayerId | null;
 }
 
 export const NotebookGrid: React.FC<NotebookGridProps> = ({
@@ -13,16 +13,27 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
   onAttackCell,
   localPlayerId
 }) => {
-  const { players, currentTurn, phase, lastRoll, pendingRowTarget } = gameState;
-  const opponentId: PlayerId = currentTurn === 'p1' ? 'p2' : 'p1';
+  const { players, playerOrder = ['p1', 'p2'], currentTurn, phase, lastRoll, pendingRowTarget } = gameState;
 
   const isMyTurnToAttack = !localPlayerId || localPlayerId === currentTurn;
 
   const canAttackTarget = (targetPlayerId: PlayerId, targetRow: RowIndex) => {
     if (phase !== 'attack_target') return false;
     if (!isMyTurnToAttack) return false;
-    if (targetPlayerId !== opponentId) return false;
-    return !players[targetPlayerId].cells[targetRow].isDestroyed;
+    // Cannot attack oneself!
+    if (targetPlayerId === currentTurn) return false;
+    if (!playerOrder.includes(targetPlayerId)) return false;
+    const targetCell = players[targetPlayerId]?.cells?.[targetRow];
+    return targetCell ? !targetCell.isDestroyed : false;
+  };
+
+  const getSquadBadgeColor = (pid: PlayerId) => {
+    switch (pid) {
+      case 'p1': return 'bg-blue-50 border-blue-200 text-blue-900 dot-blue-600';
+      case 'p2': return 'bg-rose-50 border-rose-200 text-rose-900 dot-rose-600';
+      case 'p3': return 'bg-emerald-50 border-emerald-200 text-emerald-900 dot-emerald-600';
+      case 'p4': return 'bg-purple-50 border-purple-200 text-purple-900 dot-purple-600';
+    }
   };
 
   return (
@@ -44,70 +55,71 @@ export const NotebookGrid: React.FC<NotebookGridProps> = ({
       {/* Main Arena Container */}
       <div className="pl-5 sm:pl-14 pr-1 sm:pr-4 py-0.5 sm:py-1.5 flex flex-col flex-1 min-h-0">
         {/* Arena Lane Header */}
-        <div className="grid grid-cols-12 gap-0.5 sm:gap-1.5 pb-0.5 sm:pb-1 border-b border-slate-300 font-retro font-black text-[8px] sm:text-xs shrink-0 items-center">
-          <div className="col-span-2 text-center text-slate-500 font-mono tracking-widest text-[8px] sm:text-xs">
+        <div className="flex items-center gap-0.5 sm:gap-1.5 pb-0.5 sm:pb-1 border-b border-slate-300 font-retro font-black text-[8px] sm:text-xs shrink-0">
+          <div className="w-6 xs:w-8 sm:w-11 shrink-0 text-center text-slate-500 font-mono tracking-widest text-[8px] sm:text-xs">
             LANE
           </div>
-          <div className="col-span-5 text-center flex items-center justify-center gap-0.5 sm:gap-1 bg-blue-50 py-0.2 sm:py-0.5 rounded sm:rounded-lg border border-blue-200">
-            <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-600 shrink-0" />
-            <span className="text-blue-900 tracking-wider truncate uppercase">{players.p1.name} SQUAD</span>
-          </div>
-          <div className="col-span-5 text-center flex items-center justify-center gap-0.5 sm:gap-1 bg-rose-50 py-0.2 sm:py-0.5 rounded sm:rounded-lg border border-rose-200">
-            <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-rose-600 shrink-0" />
-            <span className="text-rose-900 tracking-wider truncate uppercase">{players.p2.name} SQUAD</span>
-          </div>
+          {playerOrder.map((pid) => {
+            const player = players[pid];
+            if (!player) return null;
+            const badgeClasses = getSquadBadgeColor(pid);
+            const isTurn = currentTurn === pid;
+
+            return (
+              <div
+                key={pid}
+                className={`flex-1 min-w-0 text-center flex items-center justify-center gap-0.5 sm:gap-1 py-0.2 sm:py-0.5 rounded sm:rounded-lg border transition-all ${
+                  isTurn ? 'ring-1 ring-amber-400 font-black' : ''
+                } ${badgeClasses.split(' ').slice(0, 3).join(' ')}`}
+              >
+                <span
+                  className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: player.inkColor }}
+                />
+                <span className="tracking-wider truncate uppercase text-[8px] sm:text-[10px] md:text-xs">
+                  {player.name}
+                </span>
+              </div>
+            );
+          })}
         </div>
 
         {/* 5 Combat Lanes: Strict Grid Rows 5 strictly guarantees equal vertical space */}
         <div className="grid grid-rows-5 flex-1 min-h-0 gap-0.5 sm:gap-1.5 py-0.5">
           {ROW_NUMBERS.map((rowNum) => {
-            const isP1TurnRow = currentTurn === 'p1' && lastRoll === rowNum;
-            const isP2TurnRow = currentTurn === 'p2' && lastRoll === rowNum;
-
-            const isP1Attacker = currentTurn === 'p1' && pendingRowTarget === rowNum;
-            const isP2Attacker = currentTurn === 'p2' && pendingRowTarget === rowNum;
-
-            const p1CanBeAttacked = canAttackTarget('p1', rowNum);
-            const p2CanBeAttacked = canAttackTarget('p2', rowNum);
-
             return (
-              <div key={rowNum} className="grid grid-cols-12 gap-0.5 sm:gap-1.5 items-stretch min-h-0 h-full">
-                {/* Column 1: Lane Shield Badge */}
-                <div className="col-span-2 flex items-center justify-center h-full">
-                  <div
-                    className="w-5 h-5 xs:w-6 xs:h-6 sm:w-9 sm:h-9 rounded sm:rounded-xl border sm:border-2 border-[#0f172a] bg-gradient-to-b from-amber-300 to-amber-400 flex items-center justify-center font-retro font-black text-[10px] sm:text-base text-[#0f172a] shadow-xs select-none"
-                  >
+              <div key={rowNum} className="flex items-stretch gap-0.5 sm:gap-1.5 min-h-0 h-full">
+                {/* Lane Shield Badge */}
+                <div className="w-6 xs:w-8 sm:w-11 shrink-0 flex items-center justify-center h-full">
+                  <div className="w-5 h-5 xs:w-6 xs:h-6 sm:w-8 sm:h-8 rounded sm:rounded-xl border sm:border-2 border-[#0f172a] bg-gradient-to-b from-amber-300 to-amber-400 flex items-center justify-center font-retro font-black text-[10px] sm:text-sm text-[#0f172a] shadow-xs select-none">
                     {rowNum}
                   </div>
                 </div>
 
-                {/* Column 2: Player 1 Combat Cell */}
-                <div className="col-span-5 h-full min-h-0">
-                  <StickmanCell
-                    rowIndex={rowNum}
-                    cell={players.p1.cells[rowNum]}
-                    playerId="p1"
-                    inkColor={players.p1.inkColor}
-                    isCurrentTurnRow={isP1TurnRow}
-                    isAttacker={isP1Attacker}
-                    canBeAttacked={p1CanBeAttacked}
-                    onAttackClick={() => onAttackCell('p1', rowNum)}
-                  />
-                </div>
+                {/* Player Columns (2, 3, or 4 players) */}
+                {playerOrder.map((pid) => {
+                  const player = players[pid];
+                  if (!player) return null;
+                  const cell = player.cells[rowNum];
+                  const isTurnRow = currentTurn === pid && lastRoll === rowNum;
+                  const isAttacker = currentTurn === pid && pendingRowTarget === rowNum;
+                  const canBeAttacked = canAttackTarget(pid, rowNum);
 
-                {/* Column 3: Player 2 Combat Cell */}
-                <div className="col-span-5 h-full min-h-0">
-                  <StickmanCell
-                    rowIndex={rowNum}
-                    cell={players.p2.cells[rowNum]}
-                    playerId="p2"
-                    inkColor={players.p2.inkColor}
-                    isCurrentTurnRow={isP2TurnRow}
-                    isAttacker={isP2Attacker}
-                    canBeAttacked={p2CanBeAttacked}
-                    onAttackClick={() => onAttackCell('p2', rowNum)}
-                  />
-                </div>
+                  return (
+                    <div key={pid} className="flex-1 min-w-0 h-full">
+                      <StickmanCell
+                        rowIndex={rowNum}
+                        cell={cell}
+                        playerId={pid}
+                        inkColor={player.inkColor}
+                        isCurrentTurnRow={isTurnRow}
+                        isAttacker={isAttacker}
+                        canBeAttacked={canBeAttacked}
+                        onAttackClick={() => onAttackCell(pid, rowNum)}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             );
           })}

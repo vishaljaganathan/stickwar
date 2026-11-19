@@ -1,4 +1,4 @@
-import { GameState } from '../types/game';
+import { GameState, PlayerId } from '../types/game';
 
 export type NetworkRole = 'host' | 'guest' | 'offline';
 
@@ -10,21 +10,26 @@ export interface NetworkMessage {
 export interface NetworkPacket {
   senderId: string;
   senderRole: NetworkRole;
-  type: 'HELLO' | 'WELCOME' | 'SYNC_STATE' | 'REACTION' | 'PING' | 'PONG' | 'DISCONNECT';
+  type: 'HELLO' | 'WELCOME' | 'SYNC_STATE' | 'NAME_UPDATE' | 'REACTION' | 'PING' | 'PONG' | 'DISCONNECT';
   playerName?: string;
   payload?: any;
   timestamp: number;
 }
 
+export interface PlayerRosterEntry {
+  id: PlayerId;
+  name: string;
+}
+
 /**
- * High-Speed, Universal Cross-Network Multiplayer Manager
+ * High-Speed, Universal Cross-Network Multiplayer Manager (2-4 Players)
  * Operates over pure standard HTTPS & WSS (PORT 443).
  *
- * Why this works 100% across different networks (e.g. Pondicherry 4G/5G <-> Bengaluru 4G/5G):
- * 1. Cellular carriers (Jio, Airtel, Vi) strictly block non-standard ports (8884, 1883, etc.).
- *    Standard port 443 (HTTPS/WSS) is NEVER blocked by any carrier, firewall, or router.
- * 2. Does NOT rely on peer-to-peer WebRTC UDP (which fails under Symmetric Carrier Grade NAT).
- * 3. Uses dual-layer live streams: Secure WebSocket with automatic EventSource (SSE) fallback.
+ * Supports:
+ * - 2, 3, or 4 player rooms chosen by the host.
+ * - Dynamic slot assignment (Host = p1, 1st Guest = p2, 2nd Guest = p3, 3rd Guest = p4).
+ * - Realtime username synchronization.
+ * - Standard Port 443 HTTPS/WSS (never blocked by cellular carriers like Jio/Airtel 5G).
  */
 export class P2PNetworkManager {
   private ws: WebSocket | null = null;
@@ -34,18 +39,23 @@ export class P2PNetworkManager {
   public role: NetworkRole = 'offline';
   public isConnected: boolean = false;
   public localPlayerName: string = '';
-  public opponentPlayerName: string = '';
+  public myPlayerId: PlayerId = 'p1';
+  public maxPlayers: number = 2;
+
+  // Connected roster: senderId -> { id, name }
+  public roster: Record<string, PlayerRosterEntry> = {};
 
   private presenceAnnouncementInterval: number | null = null;
   private connectionTimeout: number | null = null;
   private guestRetryInterval: number | null = null;
   private heartbeatInterval: number | null = null;
-  private guestConnectedCallback: ((hostName: string) => void) | null = null;
+  private guestConnectedCallback: ((assignedId: PlayerId, roster: Record<string, PlayerRosterEntry>, hostName: string) => void) | null = null;
 
   // Live UI Callbacks
   public onStateSync?: (state: Partial<GameState>) => void;
   public onOpponentJoining?: (guestName: string) => void;
-  public onOpponentConnected?: (opponentName: string) => void;
+  public onPlayerJoined?: (playerId: PlayerId, name: string, count: number, max: number, namedRoster: Record<PlayerId, string>) => void;
+  public onNameUpdated?: (playerId: PlayerId, newName: string) => void;
   public onOpponentDisconnected?: (opponentName?: string) => void;
   public onReaction?: (reaction: string) => void;
   public onStatusChange?: (status: string) => void;
@@ -87,35 +97,54 @@ export class P2PNetworkManager {
   }
 
   private getTopic(cleanCode: string): string {
-    return `stickman_v5_${cleanCode.toLowerCase()}`;
+    return `stickman_v6_${cleanCode.toLowerCase()}`;
   }
 
-  // Host a new match room
+  public getNamedRoster(): Record<PlayerId, string> {
+    const res: Record<PlayerId, string> = {
+      p1: 'Player 1',
+      p2: 'Player 2',
+      p3: 'Player 3',
+      p4: 'Player 4'
+    };
+    Object.values(this.roster).forEach((entry) => {
+      res[entry.id] = entry.name;
+    });
+    return res;
+  }
+
+  // Host a new match room (supports 2 to 4 players)
   hostRoom(
     roomCode: string,
     hostPlayerName: string = 'Player 1',
+    maxPlayers: number = 2,
     onReady: (code: string) => void,
     onError: (err: string) => void
   ) {
     this.cleanup();
     this.role = 'host';
     this.localPlayerName = hostPlayerName.trim() || 'Player 1';
-    this.opponentPlayerName = '';
+    this.myPlayerId = 'p1';
+    this.maxPlayers = maxPlayers;
+
+    this.roster = {
+      [this.clientId]: { id: 'p1', name: this.localPlayerName }
+    };
 
     const { displayCode, cleanCode } = P2PNetworkManager.normalizeRoomCode(roomCode);
     this.roomCode = displayCode;
 
-    this.onStatusChange?.('Connecting to global relay (Port 443 HTTPS/WSS)...');
+    this.onStatusChange?.(`Creating ${maxPlayers}-Player match on Port 443...`);
 
     const topic = this.getTopic(cleanCode);
     this.connectLiveStream(
       topic,
       () => {
-        console.log('[Host] Room channel opened on port 443:', displayCode);
-        this.onStatusChange?.('Room active! Waiting for Player 2 to join...');
+        console.log(`[Host] Room active for ${maxPlayers} players:`, displayCode);
+        this.onStatusChange?.(`Room active! Waiting for players to join (1/${maxPlayers})...`);
         onReady(displayCode);
 
-        // Periodically announce host presence
+        // Periodically announce host presence with maxPlayers info
         this.startHostPresenceAnnouncement(topic);
       },
       (err) => onError(err)
@@ -126,13 +155,12 @@ export class P2PNetworkManager {
   joinRoom(
     roomCode: string,
     guestPlayerName: string = 'Player 2',
-    onConnected: (hostName: string) => void,
+    onConnected: (assignedId: PlayerId, roster: Record<string, PlayerRosterEntry>, hostName: string) => void,
     onError: (err: string) => void
   ) {
     this.cleanup();
     this.role = 'guest';
     this.localPlayerName = guestPlayerName.trim() || 'Player 2';
-    this.opponentPlayerName = '';
     this.guestConnectedCallback = onConnected;
 
     const { displayCode, cleanCode } = P2PNetworkManager.normalizeRoomCode(roomCode);
@@ -159,8 +187,8 @@ export class P2PNetworkManager {
     this.connectLiveStream(
       topic,
       () => {
-        this.onStatusChange?.('Found room! Handshaking with Host...');
-        // Send initial HELLO
+        this.onStatusChange?.('Found room! Requesting player slot...');
+        // Send initial HELLO with guest name
         this.publishPacket(topic, {
           senderId: this.clientId,
           senderRole: 'guest',
@@ -169,11 +197,38 @@ export class P2PNetworkManager {
           timestamp: Date.now()
         });
 
-        // Start repeating join request until host acknowledges
+        // Start repeating join request until host assigns slot
         this.startGuestJoinRetry(topic);
       },
       (err) => onError(err)
     );
+  }
+
+  // Update commander name in real-time and broadcast to all players
+  updateLocalName(newName: string) {
+    const cleanName = newName.trim();
+    if (!cleanName) return;
+    this.localPlayerName = cleanName;
+
+    if (this.roster[this.clientId]) {
+      this.roster[this.clientId].name = cleanName;
+    }
+
+    if (this.roomCode) {
+      const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
+      const topic = this.getTopic(cleanCode);
+      this.publishPacket(topic, {
+        senderId: this.clientId,
+        senderRole: this.role,
+        type: 'NAME_UPDATE',
+        playerName: cleanName,
+        payload: {
+          id: this.myPlayerId,
+          newName: cleanName
+        },
+        timestamp: Date.now()
+      });
+    }
   }
 
   // Connects via Port 443 WSS with auto SSE fallback
@@ -184,14 +239,11 @@ export class P2PNetworkManager {
   ) {
     try {
       const wsUrl = `wss://ntfy.sh/${topic}/ws`;
-      console.log('[Relay] Connecting via WSS on standard port 443:', wsUrl);
-
       this.ws = new WebSocket(wsUrl);
 
       let opened = false;
       this.ws.onopen = () => {
         opened = true;
-        console.log('[Relay] WSS connected successfully on port 443!');
         this.startHeartbeat(topic);
         onSuccess();
       };
@@ -210,16 +262,13 @@ export class P2PNetworkManager {
       this.ws.onerror = (e) => {
         console.warn('[Relay WSS Error]:', e);
         if (!opened) {
-          // Fallback to Server-Sent Events (SSE) over standard HTTPS
-          console.log('[Relay] Switching to EventSource (SSE) over HTTPS port 443...');
           this.connectSSEFallback(topic, onSuccess, onError);
         }
       };
 
       this.ws.onclose = () => {
         if (this.isConnected) {
-          console.log('[Relay] WSS closed, reconnecting...');
-          this.onStatusChange?.('Connection interrupted, reconnecting...');
+          this.onStatusChange?.('Reconnecting stream...');
           setTimeout(() => {
             if (this.roomCode) {
               const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
@@ -244,7 +293,6 @@ export class P2PNetworkManager {
       this.sse = new EventSource(sseUrl);
 
       this.sse.onopen = () => {
-        console.log('[Relay] SSE connected successfully over port 443!');
         this.startHeartbeat(topic);
         onSuccess();
       };
@@ -272,8 +320,7 @@ export class P2PNetworkManager {
     try {
       const packet = JSON.parse(raw) as NetworkPacket;
       if (!packet || packet.senderId === this.clientId) {
-        // Ignore self-published packets
-        return;
+        return; // Ignore own published packets
       }
 
       console.log(`[Relay Received] ${packet.type} from ${packet.senderRole} (${packet.playerName || packet.senderId})`);
@@ -285,39 +332,54 @@ export class P2PNetworkManager {
       if (packet.type === 'HELLO') {
         // Host receives Guest's join request
         if (this.role === 'host' && packet.senderRole === 'guest') {
-          const guestName = packet.playerName || 'Player 2';
-          this.opponentPlayerName = guestName;
+          const guestName = packet.playerName || 'Guest';
 
-          // Notify UI that someone is joining right now
+          // Assign slot if not yet in roster
+          let assignedId: PlayerId;
+          if (this.roster[packet.senderId]) {
+            assignedId = this.roster[packet.senderId].id;
+          } else {
+            const currentCount = Object.keys(this.roster).length;
+            if (currentCount >= this.maxPlayers) {
+              console.warn(`[Host] Room full (${currentCount}/${this.maxPlayers}). Cannot add ${guestName}`);
+              return;
+            }
+            assignedId = currentCount === 1 ? 'p2' : currentCount === 2 ? 'p3' : 'p4';
+            this.roster[packet.senderId] = { id: assignedId, name: guestName };
+          }
+
+          const totalJoined = Object.keys(this.roster).length;
           this.onOpponentJoining?.(guestName);
-          this.onStatusChange?.(`⚡ ${guestName} is connecting...`);
-
+          this.onStatusChange?.(`⚡ ${guestName} joined as ${assignedId.toUpperCase()} (${totalJoined}/${this.maxPlayers})`);
           this.isConnected = true;
 
-          // Reply with WELCOME packet containing host name
+          // Reply with WELCOME packet containing assigned slot & full roster
           this.publishPacket(topic, {
             senderId: this.clientId,
             senderRole: 'host',
             type: 'WELCOME',
             playerName: this.localPlayerName,
             payload: {
+              targetSenderId: packet.senderId,
+              assignedId,
+              maxPlayers: this.maxPlayers,
               hostName: this.localPlayerName,
-              guestName: guestName
+              roster: this.roster
             },
             timestamp: Date.now()
           });
 
-          // Trigger connected event for host
-          if (this.onOpponentConnected) {
-            this.onOpponentConnected(guestName);
-          }
+          // Notify host UI of player join
+          this.onPlayerJoined?.(assignedId, guestName, totalJoined, this.maxPlayers, this.getNamedRoster());
         }
 
         // Guest receives Host's presence announcement
         if (this.role === 'guest' && packet.senderRole === 'host') {
           const hostName = packet.playerName || 'Host Player';
-          this.opponentPlayerName = hostName;
-          this.onStatusChange?.(`Found ${hostName}'s room! Connecting...`);
+          if (packet.payload?.maxPlayers) {
+            this.maxPlayers = packet.payload.maxPlayers;
+          }
+          this.onStatusChange?.(`Found ${hostName}'s room! Requesting slot...`);
 
           // Reply with HELLO
           this.publishPacket(topic, {
@@ -333,35 +395,55 @@ export class P2PNetworkManager {
       // --- CASE 2: WELCOME PACKET ---
       if (packet.type === 'WELCOME') {
         if (this.role === 'guest' && packet.senderRole === 'host') {
-          const hostName = packet.playerName || packet.payload?.hostName || 'Host Player';
-          this.opponentPlayerName = hostName;
+          // Check if this welcome is intended for this guest
+          if (packet.payload?.targetSenderId === this.clientId) {
+            const assignedId: PlayerId = packet.payload.assignedId || 'p2';
+            const hostName = packet.playerName || packet.payload?.hostName || 'Host Player';
+            this.myPlayerId = assignedId;
+            this.maxPlayers = packet.payload.maxPlayers || 2;
+            this.roster = packet.payload.roster || {};
 
-          if (this.connectionTimeout) {
-            clearTimeout(this.connectionTimeout);
-            this.connectionTimeout = null;
-          }
-          if (this.guestRetryInterval) {
-            clearInterval(this.guestRetryInterval);
-            this.guestRetryInterval = null;
-          }
+            if (this.connectionTimeout) {
+              clearTimeout(this.connectionTimeout);
+              this.connectionTimeout = null;
+            }
+            if (this.guestRetryInterval) {
+              clearInterval(this.guestRetryInterval);
+              this.guestRetryInterval = null;
+            }
 
-          this.isConnected = true;
-          this.onStatusChange?.(`Connected with ${hostName}! Entering battle...`);
+            this.isConnected = true;
+            this.onStatusChange?.(`Assigned ${assignedId.toUpperCase()} in ${hostName}'s match!`);
 
-          if (this.guestConnectedCallback) {
-            this.guestConnectedCallback(hostName);
-            this.guestConnectedCallback = null;
-          }
-
-          if (this.onOpponentConnected) {
-            this.onOpponentConnected(hostName);
+            if (this.guestConnectedCallback) {
+              this.guestConnectedCallback(assignedId, this.roster, hostName);
+              this.guestConnectedCallback = null;
+            }
+          } else if (packet.payload?.roster) {
+            // Update local roster copy when other guests join
+            this.roster = packet.payload.roster;
+            const currentCount = Object.keys(this.roster).length;
+            const latestEntry = Object.values(this.roster)[currentCount - 1];
+            if (latestEntry && latestEntry.id !== this.myPlayerId) {
+              this.onPlayerJoined?.(latestEntry.id, latestEntry.name, currentCount, this.maxPlayers, this.getNamedRoster());
+            }
           }
         }
       }
 
-      // --- CASE 3: GAME STATE SYNC ---
+      // --- CASE 3: NAME UPDATE PACKET ---
+      if (packet.type === 'NAME_UPDATE' && packet.payload) {
+        const { id, newName } = packet.payload;
+        if (id && newName) {
+          if (this.roster[packet.senderId]) {
+            this.roster[packet.senderId].name = newName;
+          }
+          this.onNameUpdated?.(id, newName);
+        }
+      }
+
+      // --- CASE 4: GAME STATE SYNC ---
       if (packet.type === 'SYNC_STATE' && packet.payload) {
-        // Auto-complete guest connection if sync arrives
         if (this.role === 'guest' && !this.isConnected) {
           if (this.connectionTimeout) {
             clearTimeout(this.connectionTimeout);
@@ -372,15 +454,6 @@ export class P2PNetworkManager {
             this.guestRetryInterval = null;
           }
           this.isConnected = true;
-          const hostName = packet.playerName || 'Host Player';
-          this.opponentPlayerName = hostName;
-          if (this.guestConnectedCallback) {
-            this.guestConnectedCallback(hostName);
-            this.guestConnectedCallback = null;
-          }
-          if (this.onOpponentConnected) {
-            this.onOpponentConnected(hostName);
-          }
         }
 
         if (this.onStateSync) {
@@ -388,17 +461,18 @@ export class P2PNetworkManager {
         }
       }
 
-      // --- CASE 4: REACTION ---
+      // --- CASE 5: REACTION ---
       if (packet.type === 'REACTION' && packet.payload) {
         if (this.onReaction) {
           this.onReaction(packet.payload);
         }
       }
 
-      // --- CASE 5: DISCONNECT ---
+      // --- CASE 6: DISCONNECT ---
       if (packet.type === 'DISCONNECT') {
-        this.isConnected = false;
-        const name = packet.playerName || this.opponentPlayerName || 'Opponent';
+        const leavingEntry = this.roster[packet.senderId];
+        const name = leavingEntry?.name || packet.playerName || 'Player';
+        delete this.roster[packet.senderId];
         this.onStatusChange?.(`${name} left the room`);
         if (this.onOpponentDisconnected) {
           this.onOpponentDisconnected(name);
@@ -428,14 +502,21 @@ export class P2PNetworkManager {
   private startHostPresenceAnnouncement(topic: string) {
     if (this.presenceAnnouncementInterval) clearInterval(this.presenceAnnouncementInterval);
 
-    // Broadcast host presence every 1.5s until guest connects
+    // Broadcast host presence every 1.5s until room is full
     this.presenceAnnouncementInterval = window.setInterval(() => {
-      if (!this.isConnected) {
+      const currentCount = Object.keys(this.roster).length;
+      if (currentCount < this.maxPlayers) {
         this.publishPacket(topic, {
           senderId: this.clientId,
           senderRole: 'host',
           type: 'HELLO',
           playerName: this.localPlayerName,
+          payload: {
+            hostName: this.localPlayerName,
+            maxPlayers: this.maxPlayers,
+            currentCount,
+            roster: this.roster
+          },
           timestamp: Date.now()
         });
       }
@@ -564,7 +645,7 @@ export class P2PNetworkManager {
     this.cleanup();
     this.role = 'offline';
     this.roomCode = '';
-    this.opponentPlayerName = '';
+    this.roster = {};
   }
 }
 

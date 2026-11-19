@@ -38,7 +38,22 @@ export interface CellState {
   justUpdated?: boolean;
 }
 
-export type PlayerId = 'p1' | 'p2';
+export type PlayerId = 'p1' | 'p2' | 'p3' | 'p4';
+
+export interface PlayerConfig {
+  id: PlayerId;
+  name: string;
+  inkColor: string;
+  avatar: string;
+  label: string;
+}
+
+export const PLAYER_CONFIGS: Record<PlayerId, PlayerConfig> = {
+  p1: { id: 'p1', name: 'Player 1', inkColor: '#1e3a8a', avatar: '🤠', label: 'BLUE SQUAD' },
+  p2: { id: 'p2', name: 'Player 2', inkColor: '#b91c1c', avatar: '🥷', label: 'RED SQUAD' },
+  p3: { id: 'p3', name: 'Player 3', inkColor: '#047857', avatar: '🧙', label: 'GREEN SQUAD' },
+  p4: { id: 'p4', name: 'Player 4', inkColor: '#6d28d9', avatar: '🤖', label: 'PURPLE SQUAD' }
+};
 
 export interface PlayerState {
   id: PlayerId;
@@ -77,6 +92,8 @@ export interface RollAnnouncement {
 
 export interface GameState {
   mode: GameMode;
+  maxPlayers: number;
+  playerOrder: PlayerId[];
   currentTurn: PlayerId;
   phase: GamePhase;
   lastRoll: DiceRoll | null;
@@ -103,19 +120,30 @@ export const createInitialPlayer = (id: PlayerId, name: string, inkColor: string
   }
 });
 
-export const createInitialGameState = (mode: GameMode = 'local'): GameState => ({
-  mode,
-  currentTurn: 'p1',
-  phase: 'turn_ready',
-  lastRoll: null,
-  lastRollPlayer: null,
-  rollAnnouncement: null,
-  pendingRowTarget: null,
-  attackAnim: null,
-  log: ['Match started! Roll the 10-sided die. Even numbers assemble warriors, odd numbers skip turn!'],
-  winner: null,
-  players: {
-    p1: createInitialPlayer('p1', 'Player 1', '#1e3a8a'), // Classic blue pen ink
-    p2: createInitialPlayer('p2', mode === 'ai' ? 'StickBot 3000' : 'Player 2', '#b91c1c') // Red ink
-  }
-});
+export const createInitialGameState = (mode: GameMode = 'local', maxPlayers: number = 2): GameState => {
+  const activeIds: PlayerId[] =
+    maxPlayers === 4 ? ['p1', 'p2', 'p3', 'p4'] :
+    maxPlayers === 3 ? ['p1', 'p2', 'p3'] :
+    ['p1', 'p2'];
+
+  return {
+    mode,
+    maxPlayers,
+    playerOrder: activeIds,
+    currentTurn: 'p1',
+    phase: 'turn_ready',
+    lastRoll: null,
+    lastRollPlayer: null,
+    rollAnnouncement: null,
+    pendingRowTarget: null,
+    attackAnim: null,
+    log: [`Match started (${maxPlayers} Players)! Roll the 10-sided die. Even numbers assemble warriors!`],
+    winner: null,
+    players: {
+      p1: createInitialPlayer('p1', PLAYER_CONFIGS.p1.name, PLAYER_CONFIGS.p1.inkColor),
+      p2: createInitialPlayer('p2', mode === 'ai' ? 'StickBot 3000' : PLAYER_CONFIGS.p2.name, PLAYER_CONFIGS.p2.inkColor),
+      p3: createInitialPlayer('p3', PLAYER_CONFIGS.p3.name, PLAYER_CONFIGS.p3.inkColor),
+      p4: createInitialPlayer('p4', PLAYER_CONFIGS.p4.name, PLAYER_CONFIGS.p4.inkColor)
+    }
+  };
+};

@@ -36,7 +36,11 @@ export const BattleStatus: React.FC<BattleStatusProps> = ({
             ? 'bg-rose-500 text-white border-rose-900 animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.6)]'
             : currentTurn === 'p1'
             ? 'bg-blue-600/90 text-white border-blue-950 shadow-[0_0_10px_rgba(37,99,235,0.4)]'
-            : 'bg-rose-600/90 text-white border-rose-950 shadow-[0_0_10px_rgba(225,29,72,0.4)]'
+            : currentTurn === 'p2'
+            ? 'bg-rose-600/90 text-white border-rose-950 shadow-[0_0_10px_rgba(225,29,72,0.4)]'
+            : currentTurn === 'p3'
+            ? 'bg-emerald-600/90 text-white border-emerald-950 shadow-[0_0_10px_rgba(16,185,129,0.4)]'
+            : 'bg-purple-600/90 text-white border-purple-950 shadow-[0_0_10px_rgba(168,85,247,0.4)]'
         }`}
       >
         <span className="text-xs sm:text-sm shrink-0">
