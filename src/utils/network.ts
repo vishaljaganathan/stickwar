@@ -26,6 +26,7 @@ type ListenerMap = {
   nameUpdated: (playerId: PlayerId, newName: string) => void;
   matchStarted: (payload: { maxPlayers: number; roster: Record<string, PlayerRosterEntry>; namedRoster: Record<PlayerId, string> }) => void;
   guestConnected: (assignedId: PlayerId, roster: Record<string, PlayerRosterEntry>, hostName: string) => void;
+  rosterUpdated: (roster: Record<string, PlayerRosterEntry>) => void;
   statusChange: (status: string) => void;
   opponentJoining: (guestName: string) => void;
   opponentDisconnected: (name?: string) => void;
@@ -71,6 +72,7 @@ export class P2PNetworkManager {
     nameUpdated: [],
     matchStarted: [],
     guestConnected: [],
+    rosterUpdated: [],
     statusChange: [],
     opponentJoining: [],
     opponentDisconnected: [],
@@ -167,13 +169,15 @@ export class P2PNetworkManager {
 
   public getNamedRoster(): Record<PlayerId, string> {
     const res: Record<PlayerId, string> = {
-      p1: 'Player 1',
-      p2: 'Player 2',
-      p3: 'Player 3',
-      p4: 'Player 4'
+      p1: '',
+      p2: '',
+      p3: '',
+      p4: ''
     };
     Object.values(this.roster).forEach((entry) => {
-      res[entry.id] = entry.name;
+      if (entry.id && entry.name) {
+        res[entry.id] = entry.name;
+      }
     });
     return res;
   }
@@ -435,12 +439,17 @@ export class P2PNetworkManager {
             assignedId = this.roster[packet.senderId].id;
             this.roster[packet.senderId].name = guestName;
           } else {
-            const currentCount = Object.keys(this.roster).length;
-            if (currentCount >= this.maxPlayers) {
-              console.warn(`[Host] Room full (${currentCount}/${this.maxPlayers}). Cannot add ${guestName}`);
+            // Find which slots are currently in use
+            const takenSlots = new Set(Object.values(this.roster).map((entry) => entry.id));
+            const availableSlots: PlayerId[] = (['p2', 'p3', 'p4'] as PlayerId[]).slice(0, this.maxPlayers - 1);
+            const freeSlot = availableSlots.find((s) => !takenSlots.has(s));
+
+            if (!freeSlot) {
+              console.warn(`[Host] Room full (${takenSlots.size}/${this.maxPlayers}). Cannot add ${guestName}`);
               return;
             }
-            assignedId = currentCount === 1 ? 'p2' : currentCount === 2 ? 'p3' : 'p4';
+
+            assignedId = freeSlot;
             this.roster[packet.senderId] = { id: assignedId, name: guestName };
           }
 
@@ -458,6 +467,7 @@ export class P2PNetworkManager {
             payload: {
               targetSenderId: packet.senderId,
               assignedId,
+              newGuestName: guestName,
               maxPlayers: this.maxPlayers,
               hostName: this.localPlayerName,
               roster: this.roster
@@ -465,8 +475,9 @@ export class P2PNetworkManager {
             timestamp: Date.now()
           });
 
-          // Notify host UI of player join
+          // Notify host UI of player join and roster update
           this.emit('playerJoined', assignedId, guestName, totalJoined, this.maxPlayers, this.getNamedRoster());
+          this.emit('rosterUpdated', this.roster);
         }
 
         // Guest receives Host's presence announcement
@@ -475,16 +486,22 @@ export class P2PNetworkManager {
           if (packet.payload?.maxPlayers) {
             this.maxPlayers = packet.payload.maxPlayers;
           }
-          this.emit('statusChange', `Found ${hostName}'s room! Requesting slot...`);
+          if (packet.payload?.roster) {
+            this.roster = packet.payload.roster;
+            this.emit('rosterUpdated', this.roster);
+          }
 
-          // Reply with HELLO
-          this.publishPacket(topic, {
-            senderId: this.clientId,
-            senderRole: 'guest',
-            type: 'HELLO',
-            playerName: this.localPlayerName,
-            timestamp: Date.now()
-          });
+          // ONLY reply with HELLO if guest is NOT yet connected/assigned!
+          if (!this.isConnected) {
+            this.emit('statusChange', `Found ${hostName}'s room! Requesting slot...`);
+            this.publishPacket(topic, {
+              senderId: this.clientId,
+              senderRole: 'guest',
+              type: 'HELLO',
+              playerName: this.localPlayerName,
+              timestamp: Date.now()
+            });
+          }
         }
       }
 
@@ -516,13 +533,17 @@ export class P2PNetworkManager {
               this.guestConnectedCallback = null;
             }
             this.emit('guestConnected', assignedId, this.roster, hostName);
+            this.emit('rosterUpdated', this.roster);
           } else if (packet.payload?.roster) {
             // Update local roster copy when other guests join
             this.roster = packet.payload.roster;
             const currentCount = Object.keys(this.roster).length;
-            const latestEntry = Object.values(this.roster)[currentCount - 1];
-            if (latestEntry && latestEntry.id !== this.myPlayerId) {
-              this.emit('playerJoined', latestEntry.id, latestEntry.name, currentCount, this.maxPlayers, this.getNamedRoster());
+            this.emit('rosterUpdated', this.roster);
+
+            const newId = packet.payload.assignedId;
+            const newName = packet.payload.newGuestName || 'New Player';
+            if (newId && newId !== this.myPlayerId) {
+              this.emit('playerJoined', newId, newName, currentCount, this.maxPlayers, this.getNamedRoster());
             }
           }
         }
@@ -581,6 +602,7 @@ export class P2PNetworkManager {
         delete this.roster[packet.senderId];
         this.emit('statusChange', `${name} left the room`);
         this.emit('opponentDisconnected', name);
+        this.emit('rosterUpdated', this.roster);
       }
     } catch (e) {
       console.error('[Relay] Error parsing message payload:', e);

@@ -631,14 +631,30 @@ export const App: React.FC = () => {
     });
 
     const unsubReaction = networkManager.addListener('reaction', (reaction) => {
+      const myId = networkManager.myPlayerId;
       const oppName = networkManager.roster
-        ? Object.values(networkManager.roster).find((r) => r.id !== localPlayerId)?.name || 'Opponent'
+        ? Object.values(networkManager.roster).find((r) => r.id !== myId)?.name || 'Opponent'
         : 'Opponent';
       setReactionNotice({
         emoji: reaction,
         from: oppName
       });
       setTimeout(() => setReactionNotice(null), 2500);
+    });
+
+    const unsubRoster = networkManager.addListener('rosterUpdated', (roster) => {
+      setGameState((prev) => {
+        const nextPlayers = { ...prev.players };
+        Object.values(roster).forEach((entry) => {
+          if (entry.id && entry.name) {
+            nextPlayers[entry.id] = { ...nextPlayers[entry.id], name: entry.name };
+          }
+        });
+        return {
+          ...prev,
+          players: nextPlayers
+        };
+      });
     });
 
     const unsubDisc = networkManager.addListener('opponentDisconnected', (name) => {
@@ -654,11 +670,12 @@ export const App: React.FC = () => {
       unsubName();
       unsubMatch();
       unsubReaction();
+      unsubRoster();
       unsubDisc();
       networkManager.disconnect();
       firebaseSync.stopListening();
     };
-  }, [localPlayerId]);
+  }, []);
 
   const handleSendReaction = (emoji: string) => {
     setReactionNotice({

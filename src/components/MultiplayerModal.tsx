@@ -121,12 +121,36 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
       console.log(`[MultiplayerModal] playerJoined: ${name} as ${playerId} (${count}/${max})`);
       setTotalJoinedCount(count);
       setSelectedMaxPlayers(max);
-      setConnectedRoster((prev) => ({
-        ...prev,
-        ...roster,
-        [playerId]: name
-      }));
+      setConnectedRoster((prev) => {
+        const next = { ...prev };
+        (Object.keys(roster) as PlayerId[]).forEach((pid) => {
+          if (roster[pid]) {
+            next[pid] = roster[pid];
+          }
+        });
+        next[playerId] = name;
+        return next;
+      });
       setNetworkStatus(`⚡ ${name} joined as ${PLAYER_CONFIGS[playerId]?.label || playerId.toUpperCase()} (${count}/${max})`);
+    });
+
+    const unsubRoster = networkManager.addListener('rosterUpdated', (roster) => {
+      setTotalJoinedCount(Object.keys(roster).length);
+      setSelectedMaxPlayers(networkManager.maxPlayers);
+      setConnectedRoster((prev) => {
+        const next: Record<PlayerId, string> = {
+          p1: prev.p1 || hostCommanderName || 'Host',
+          p2: 'Waiting for Player 2...',
+          p3: 'Waiting for Player 3...',
+          p4: 'Waiting for Player 4...'
+        };
+        Object.values(roster).forEach((entry) => {
+          if (entry.id && entry.name) {
+            next[entry.id] = entry.name;
+          }
+        });
+        return next;
+      });
     });
 
     const unsubName = networkManager.addListener('nameUpdated', (playerId, newName) => {
@@ -177,6 +201,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
     return () => {
       unsubJoin();
+      unsubRoster();
       unsubName();
       unsubGuest();
       unsubStart();
