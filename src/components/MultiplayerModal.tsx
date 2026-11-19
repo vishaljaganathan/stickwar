@@ -223,7 +223,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 type="text"
                 value={playerName}
                 onChange={(e) => savePlayerName(e.target.value)}
-                placeholder="Enter your name (e.g. Vishal, Priya)"
+                placeholder="Enter your name (e.g. Vishal, Sasithra)"
                 maxLength={14}
                 className="w-full text-xs sm:text-sm font-retro font-black text-blue-900 bg-transparent border-b border-dashed border-amber-600 focus:outline-none focus:border-blue-700 px-0.5"
               />
