@@ -162,6 +162,7 @@ export class VoiceChatManager {
           const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
           if (AudioCtx) {
             this.audioContext = new AudioCtx();
+            this.setupContextStateListener();
           }
         }
         if (this.audioContext && this.audioContext.state === 'suspended') {
@@ -185,6 +186,15 @@ export class VoiceChatManager {
 
     window.addEventListener('click', unlock, { passive: true });
     window.addEventListener('touchstart', unlock, { passive: true });
+  }
+
+  private setupContextStateListener() {
+    if (!this.audioContext) return;
+    this.audioContext.onstatechange = () => {
+      if (this.isJoined && this.audioContext && this.audioContext.state === 'suspended') {
+        this.audioContext.resume().catch(() => {});
+      }
+    };
   }
 
   // Resample audio buffer using linear interpolation to target rate (e.g. 48kHz -> 12kHz)
@@ -242,6 +252,7 @@ export class VoiceChatManager {
 
       if (!this.audioContext || this.audioContext.state === 'closed') {
         this.audioContext = new AudioCtx();
+        this.setupContextStateListener();
       }
       if (this.audioContext.state === 'suspended') {
         this.audioContext.resume().catch(() => {});
@@ -265,13 +276,13 @@ export class VoiceChatManager {
       const now = this.audioContext.currentTime;
       let nextPlayTime = this.peerPlayTimes.get(fromClientId) || 0;
 
-      // If buffer underran or starting: start with a smooth 35ms cushion to absorb mobile network jitter
+      // If buffer underran or starting: start with a smooth 45ms cushion to absorb mobile network jitter
       if (nextPlayTime < now) {
-        nextPlayTime = now + 0.035;
-      } else if (nextPlayTime - now > 0.22) {
-        // If network delay caused chunks to arrive in a burst >220ms in the future,
-        // catch up to now + 0.035 to prevent creeping lag!
-        nextPlayTime = now + 0.035;
+        nextPlayTime = now + 0.045;
+      } else if (nextPlayTime - now > 0.45) {
+        // If network delay caused chunks to arrive in a large burst >450ms in the future,
+        // catch up to now + 0.045 to prevent creeping lag!
+        nextPlayTime = now + 0.045;
       }
 
       source.start(nextPlayTime);
@@ -309,7 +320,7 @@ export class VoiceChatManager {
           p.isSpeaking = false;
           this.notify();
         }
-      }, 450);
+      }, 600);
       this.peerSpeakingTimers.set(fromClientId, timer);
     } catch (err) {
       console.warn('[Voice] Error playing remote audio chunk:', err);
@@ -542,6 +553,7 @@ export class VoiceChatManager {
 
       if (!this.audioContext || this.audioContext.state === 'closed') {
         this.audioContext = new AudioCtx();
+        this.setupContextStateListener();
       }
       if (this.audioContext.state === 'suspended') {
         this.audioContext.resume().catch(() => {});
@@ -549,16 +561,16 @@ export class VoiceChatManager {
 
       const source = this.audioContext.createMediaStreamSource(stream);
 
-      // 1. Hardware Highpass filter (100Hz): removes phone handling vibration, desk thumps & room rumble
+      // 1. Hardware Highpass filter (80Hz): removes phone handling vibration, desk thumps & room rumble while retaining vocal warmth
       const highpass = this.audioContext.createBiquadFilter();
       highpass.type = 'highpass';
-      highpass.frequency.setValueAtTime(100, this.audioContext.currentTime);
+      highpass.frequency.setValueAtTime(80, this.audioContext.currentTime);
       highpass.Q.setValueAtTime(0.707, this.audioContext.currentTime);
 
-      // 2. Hardware Lowpass filter (7500Hz): cuts out harsh high-frequency hissing, fan noise & aliasing
+      // 2. Hardware Lowpass filter (8500Hz): cuts out harsh high-frequency hissing, fan noise & aliasing while keeping crisp speech clarity
       const lowpass = this.audioContext.createBiquadFilter();
       lowpass.type = 'lowpass';
-      lowpass.frequency.setValueAtTime(7500, this.audioContext.currentTime);
+      lowpass.frequency.setValueAtTime(8500, this.audioContext.currentTime);
       lowpass.Q.setValueAtTime(0.707, this.audioContext.currentTime);
 
       source.connect(highpass);
@@ -570,8 +582,9 @@ export class VoiceChatManager {
       this.analyser.smoothingTimeConstant = 0.4;
       lowpass.connect(this.analyser);
 
-      // Ultra-low-latency ScriptProcessorNode (2048 samples = ~42ms capture latency)
-      const processor = this.audioContext.createScriptProcessor(2048, 1, 1);
+      // Stable 4096-sample buffer (~85.3ms chunks at 48kHz, resampled to 2048 samples at 24kHz HD Voice).
+      // 85ms packets eliminate cellular jitter starvation and prevent audio breaking/chopping.
+      const processor = this.audioContext.createScriptProcessor(4096, 1, 1);
       lowpass.connect(processor);
 
       // ScriptProcessorNode requires a destination connection to process audio
@@ -583,7 +596,7 @@ export class VoiceChatManager {
       this.audioProcessor = processor;
 
       let vadHangover = 0;
-      const HANGOVER_BUFFERS = 10; // ~420ms hangover: keeps words, syllables and quiet endings uncut
+      const HANGOVER_BUFFERS = 15; // ~1.28s hangover: prevents breaking between words, quiet sentence endings, and breaths
 
       processor.onaudioprocess = (e) => {
         if (!this.isJoined || this.isMuted) return;
@@ -597,8 +610,8 @@ export class VoiceChatManager {
         }
         const rms = Math.sqrt(sum / input.length);
 
-        // Speaking detection with 420ms hangover
-        if (rms > 0.008) {
+        // Sensitive speaking detection (0.003) captures natural speech and whispers without false clipping
+        if (rms > 0.003) {
           vadHangover = HANGOVER_BUFFERS;
         }
 
@@ -651,10 +664,10 @@ export class VoiceChatManager {
         const avg = sum / bufferLength;
 
         // Threshold for human voice
-        const isCurrentlySpeaking = avg > 16;
+        const isCurrentlySpeaking = avg > 12;
 
         if (isCurrentlySpeaking) {
-          speakingDebounce = 3; // hold speaking state for ~300ms
+          speakingDebounce = 4; // hold speaking state for ~400ms
         } else if (speakingDebounce > 0) {
           speakingDebounce--;
         }
