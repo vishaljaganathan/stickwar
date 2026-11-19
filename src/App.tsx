@@ -562,9 +562,9 @@ export const App: React.FC = () => {
     }
   }, [gameState.mode, gameState.currentTurn, gameState.phase, gameState.winner]);
 
-  // Network Listeners (Multiplayer state, real-time name sync, reactions)
+  // Network Listeners (Multiplayer state, real-time name sync, match start, reactions)
   useEffect(() => {
-    networkManager.onStateSync = (incomingState) => {
+    const unsubSync = networkManager.addListener('stateSync', (incomingState) => {
       setGameState((prev) => {
         const mergedPlayers = { ...prev.players };
         if (incomingState.players) {
@@ -585,9 +585,9 @@ export const App: React.FC = () => {
           players: mergedPlayers
         };
       });
-    };
+    });
 
-    networkManager.onNameUpdated = (playerId, newName) => {
+    const unsubName = networkManager.addListener('nameUpdated', (playerId, newName) => {
       setGameState((prev) => ({
         ...prev,
         players: {
@@ -598,9 +598,39 @@ export const App: React.FC = () => {
           }
         }
       }));
-    };
+    });
 
-    networkManager.onReaction = (reaction) => {
+    const unsubMatch = networkManager.addListener('matchStarted', (payload) => {
+      sounds.playDiceRoll();
+      const maxP = payload?.maxPlayers || networkManager.maxPlayers || 2;
+      const activeOrder: PlayerId[] = (['p1', 'p2', 'p3', 'p4'] as PlayerId[]).slice(0, maxP);
+
+      setGameState((prev) => {
+        const nextPlayers = { ...prev.players };
+        if (payload?.namedRoster) {
+          (Object.keys(payload.namedRoster) as PlayerId[]).forEach((pid) => {
+            if (payload.namedRoster[pid]) {
+              nextPlayers[pid] = { ...nextPlayers[pid], name: payload.namedRoster[pid] };
+            }
+          });
+        }
+
+        return {
+          ...prev,
+          maxPlayers: maxP,
+          playerOrder: activeOrder,
+          players: nextPlayers,
+          log: [
+            ...prev.log,
+            `⚔️ Match launched with ${maxP} commanders! Roll to recruit warriors.`
+          ]
+        };
+      });
+
+      setIsMultiplayerOpen(false);
+    });
+
+    const unsubReaction = networkManager.addListener('reaction', (reaction) => {
       const oppName = networkManager.roster
         ? Object.values(networkManager.roster).find((r) => r.id !== localPlayerId)?.name || 'Opponent'
         : 'Opponent';
@@ -609,17 +639,22 @@ export const App: React.FC = () => {
         from: oppName
       });
       setTimeout(() => setReactionNotice(null), 2500);
-    };
+    });
 
-    networkManager.onOpponentDisconnected = (name) => {
+    const unsubDisc = networkManager.addListener('opponentDisconnected', (name) => {
       setReactionNotice({
         emoji: '📡',
         from: `${name || 'Player'} Left Room`
       });
       setTimeout(() => setReactionNotice(null), 3000);
-    };
+    });
 
     return () => {
+      unsubSync();
+      unsubName();
+      unsubMatch();
+      unsubReaction();
+      unsubDisc();
       networkManager.disconnect();
       firebaseSync.stopListening();
     };
@@ -667,6 +702,25 @@ export const App: React.FC = () => {
     networkManager.updateLocalName(cleanName);
   };
 
+  // Host launches match from waiting lobby
+  const handleHostStartMatch = (finalPlayerCount: number) => {
+    const activeOrder: PlayerId[] = (['p1', 'p2', 'p3', 'p4'] as PlayerId[]).slice(0, finalPlayerCount);
+    setGameState((prev) => {
+      const updated: GameState = {
+        ...prev,
+        maxPlayers: finalPlayerCount,
+        playerOrder: activeOrder,
+        log: [
+          ...prev.log,
+          `⚔️ Match launched by host with ${finalPlayerCount} commanders!`
+        ]
+      };
+      broadcastState(updated);
+      return updated;
+    });
+    setIsMultiplayerOpen(false);
+  };
+
   const handleStartOnlineHost = (
     mode: 'online_p2p' | 'online_firebase',
     roomCode: string,
@@ -678,7 +732,7 @@ export const App: React.FC = () => {
     const newGame = createInitialGameState(mode, maxPlayers);
     newGame.roomCode = roomCode;
     newGame.players.p1.name = hostName;
-    newGame.log = [`Match hosted by ${hostName}! Waiting for players to enter room ${roomCode} (1/${maxPlayers})...`];
+    newGame.log = [`Match hosted by ${hostName}! Waiting for players in lobby (${roomCode})...`];
     setGameState(newGame);
 
     if (mode === 'online_p2p') {
@@ -690,7 +744,7 @@ export const App: React.FC = () => {
         (err) => console.error('Host error:', err)
       );
 
-      networkManager.onPlayerJoined = (newPlayerId, newName, currentCount, max, namedRoster) => {
+      networkManager.addListener('playerJoined', (newPlayerId, newName, currentCount, max, namedRoster) => {
         setGameState((prev) => {
           const nextPlayers = { ...prev.players };
           (Object.keys(namedRoster) as PlayerId[]).forEach((pid) => {
@@ -710,11 +764,7 @@ export const App: React.FC = () => {
           broadcastState(updated);
           return updated;
         });
-
-        if (currentCount >= max) {
-          setTimeout(() => setIsMultiplayerOpen(false), 900);
-        }
-      };
+      });
     } else {
       firebaseSync.createRoom(roomCode, newGame).then(() => {
         firebaseSync.listenToRoom(roomCode, (data) => {
@@ -767,11 +817,11 @@ export const App: React.FC = () => {
               players: nextPlayers,
               log: [
                 ...prev.log,
-                `🎮 Joined ${hostName}'s match as ${PLAYER_CONFIGS[assignedId]?.label || assignedId.toUpperCase()}! Battle ready.`
+                `🎮 Joined ${hostName}'s match as ${PLAYER_CONFIGS[assignedId]?.label || assignedId.toUpperCase()}! In waiting lobby.`
               ]
             };
           });
-          setTimeout(() => setIsMultiplayerOpen(false), 900);
+          // Note: Modal stays open on guest_lobby tab until host launches the match!
         },
         (err) => console.error('Join error:', err)
       );
@@ -969,6 +1019,7 @@ export const App: React.FC = () => {
         onStartOnlineHost={handleStartOnlineHost}
         onStartOnlineJoin={handleStartOnlineJoin}
         onUpdateHostName={handleUpdateHostName}
+        onStartMatch={handleHostStartMatch}
         onOpenFirebaseConfig={() => setIsFirebaseConfigOpen(true)}
       />
 

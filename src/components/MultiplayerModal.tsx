@@ -5,7 +5,7 @@ import { PlayerId, PLAYER_CONFIGS } from '../types/game';
 
 interface MultiplayerModalProps {
   isOpen: boolean;
-  initialTab?: 'modes' | 'host' | 'join' | 'host_setup';
+  initialTab?: 'modes' | 'host' | 'join' | 'host_setup' | 'guest_lobby';
   initialRoomCode?: string;
   onClose: () => void;
   onSelectLocal: (maxPlayers?: number) => void;
@@ -13,6 +13,7 @@ interface MultiplayerModalProps {
   onStartOnlineHost: (mode: 'online_p2p' | 'online_firebase', roomCode: string, playerName?: string, maxPlayers?: number) => void;
   onStartOnlineJoin: (mode: 'online_p2p' | 'online_firebase', roomCode: string, playerName?: string) => void;
   onUpdateHostName?: (newName: string) => void;
+  onStartMatch?: (finalPlayerCount: number) => void;
   onOpenFirebaseConfig: () => void;
 }
 
@@ -26,9 +27,10 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   onStartOnlineHost,
   onStartOnlineJoin,
   onUpdateHostName,
+  onStartMatch,
   onOpenFirebaseConfig
 }) => {
-  const [activeTab, setActiveTab] = useState<'modes' | 'host' | 'join' | 'host_setup'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'modes' | 'host' | 'join' | 'host_setup' | 'guest_lobby'>(initialTab);
   const [onlineType, setOnlineType] = useState<'p2p' | 'firebase'>('p2p');
   const [roomCode, setRoomCode] = useState<string>('');
   const [inputCode, setInputCode] = useState<string>(initialRoomCode);
@@ -50,12 +52,16 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     }
   });
 
-  // Host Live Roster State: Record<PlayerId, string>
+  // Guest Assigned State
+  const [assignedSlot, setAssignedSlot] = useState<PlayerId>('p2');
+  const [hostCommanderName, setHostCommanderName] = useState<string>('Host Player');
+
+  // Live Roster State: Record<PlayerId, string>
   const [connectedRoster, setConnectedRoster] = useState<Record<PlayerId, string>>({
     p1: playerName.trim() || 'Player 1',
-    p2: 'Waiting...',
-    p3: 'Waiting...',
-    p4: 'Waiting...'
+    p2: 'Waiting for Player 2...',
+    p3: 'Waiting for Player 3...',
+    p4: 'Waiting for Player 4...'
   });
   const [totalJoinedCount, setTotalJoinedCount] = useState<number>(1);
 
@@ -73,6 +79,12 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         ...prev,
         p1: name.trim() || 'Player 1'
       }));
+    } else if (activeTab === 'guest_lobby') {
+      networkManager.updateLocalName(name);
+      setConnectedRoster((prev) => ({
+        ...prev,
+        [assignedSlot]: name.trim() || `Player ${assignedSlot.slice(1)}`
+      }));
     }
   };
 
@@ -86,12 +98,12 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         setInputCode(initialRoomCode);
       }
 
-      const hostName = playerName.trim() || 'Player 1';
+      const currentName = playerName.trim() || 'Player 1';
       setConnectedRoster({
-        p1: hostName,
-        p2: 'Waiting...',
-        p3: 'Waiting...',
-        p4: 'Waiting...'
+        p1: currentName,
+        p2: 'Waiting for Player 2...',
+        p3: 'Waiting for Player 3...',
+        p4: 'Waiting for Player 4...'
       });
       setTotalJoinedCount(1);
 
@@ -103,37 +115,74 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     }
   }, [isOpen, initialTab, initialRoomCode]);
 
-  // Hook into live network manager roster updates & joining events
+  // Hook into live network manager multi-subscriber events
   useEffect(() => {
-    networkManager.onPlayerJoined = (playerId, name, count, max, roster) => {
-      console.log(`[MultiplayerModal] ${name} joined as ${playerId} (${count}/${max})`);
+    const unsubJoin = networkManager.addListener('playerJoined', (playerId, name, count, max, roster) => {
+      console.log(`[MultiplayerModal] playerJoined: ${name} as ${playerId} (${count}/${max})`);
       setTotalJoinedCount(count);
+      setSelectedMaxPlayers(max);
       setConnectedRoster((prev) => ({
         ...prev,
         ...roster,
         [playerId]: name
       }));
-      setNetworkStatus(`⚡ ${name} joined as ${playerId.toUpperCase()} (${count}/${max})`);
-    };
+      setNetworkStatus(`⚡ ${name} joined as ${PLAYER_CONFIGS[playerId]?.label || playerId.toUpperCase()} (${count}/${max})`);
+    });
 
-    networkManager.onNameUpdated = (playerId, newName) => {
+    const unsubName = networkManager.addListener('nameUpdated', (playerId, newName) => {
       setConnectedRoster((prev) => ({
         ...prev,
         [playerId]: newName
       }));
-    };
-
-    networkManager.onStatusChange = (status: string) => {
-      setNetworkStatus(status);
-      if (status.toLowerCase().includes('assigned') || status.toLowerCase().includes('connected')) {
-        setIsConnecting(false);
+      if (playerId === 'p1') {
+        setHostCommanderName(newName);
       }
-      if (status.toLowerCase().includes('error') || status.toLowerCase().includes('failed')) {
+    });
+
+    const unsubGuest = networkManager.addListener('guestConnected', (assignedId, roster, hostName) => {
+      console.log(`[MultiplayerModal] guestConnected: assigned=${assignedId}, host=${hostName}`);
+      setIsConnecting(false);
+      setAssignedSlot(assignedId);
+      setHostCommanderName(hostName);
+      setRoomCode(networkManager.roomCode);
+      setSelectedMaxPlayers(networkManager.maxPlayers);
+
+      const namedRoster: Record<PlayerId, string> = {
+        p1: hostName,
+        p2: 'Waiting for Player 2...',
+        p3: 'Waiting for Player 3...',
+        p4: 'Waiting for Player 4...'
+      };
+      Object.values(roster).forEach((entry) => {
+        if (entry.id && entry.name) {
+          namedRoster[entry.id] = entry.name;
+        }
+      });
+      setConnectedRoster(namedRoster);
+      setTotalJoinedCount(Object.keys(roster).length);
+      setActiveTab('guest_lobby');
+    });
+
+    const unsubStart = networkManager.addListener('matchStarted', () => {
+      onClose();
+    });
+
+    const unsubStatus = networkManager.addListener('statusChange', (status: string) => {
+      setNetworkStatus(status);
+      if (status.toLowerCase().includes('error') || status.toLowerCase().includes('failed') || status.toLowerCase().includes('could not reach')) {
         setIsConnecting(false);
         setErrorMessage(status);
       }
+    });
+
+    return () => {
+      unsubJoin();
+      unsubName();
+      unsubGuest();
+      unsubStart();
+      unsubStatus();
     };
-  }, []);
+  }, [onClose]);
 
   if (!isOpen) return null;
 
@@ -147,9 +196,9 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
     setConnectedRoster({
       p1: finalHostName,
-      p2: 'Waiting...',
-      p3: 'Waiting...',
-      p4: 'Waiting...'
+      p2: 'Waiting for Player 2...',
+      p3: 'Waiting for Player 3...',
+      p4: 'Waiting for Player 4...'
     });
     setTotalJoinedCount(1);
 
@@ -161,6 +210,15 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     );
   };
 
+  // Host launches battle when ready
+  const handleHostStartBattle = () => {
+    if (totalJoinedCount < 2) return;
+    networkManager.startMatch(totalJoinedCount);
+    onStartMatch?.(totalJoinedCount);
+    onClose();
+  };
+
+  // Guest clicks Join Match
   const submitJoin = () => {
     const normalized = P2PNetworkManager.normalizeRoomCode(inputCode);
     if (!normalized.cleanCode) {
@@ -213,10 +271,14 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         {/* Modal Top Bar */}
         <div className="flex items-center justify-between mt-1 mb-2.5 border-b-2 border-slate-200 pb-2">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">🎮</span>
+            <span className="text-2xl">
+              {activeTab === 'guest_lobby' ? '🛡️' : '🎮'}
+            </span>
             <h2 className="text-xl sm:text-2xl font-retro font-black text-[#0f172a] uppercase tracking-wide">
               {activeTab === 'host'
-                ? 'ROOM WAITING LOBBY'
+                ? 'HOST WAITING LOBBY'
+                : activeTab === 'guest_lobby'
+                ? 'MATCH ROOM LOBBY'
                 : activeTab === 'host_setup'
                 ? 'CREATE MATCH (2-4 PLAYERS)'
                 : activeTab === 'join'
@@ -291,7 +353,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 Play across any phone & city (Pondicherry ⇄ Bengaluru) on phone 4G/5G or Wi-Fi with 2 to 4 players!
               </p>
               <div className="flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-800 mb-2.5">
-                <span>✓ Works across different networks with live player name sync</span>
+                <span>✓ Direct Port 443 relay with live player name sync</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -299,32 +361,51 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                     setOnlineType('p2p');
                     setActiveTab('host_setup');
                   }}
-                  className="btn-retro py-2 px-3 bg-amber-400 hover:bg-amber-300 rounded-xl font-retro font-black text-xs text-[#0f172a]"
+                  className="btn-retro py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_#0f172a]"
                 >
-                  ⚔️ CREATE MATCH (2-4P)
+                  <span>👑</span> CREATE ROOM
                 </button>
                 <button
                   onClick={() => {
                     setOnlineType('p2p');
                     setActiveTab('join');
                   }}
-                  className="btn-retro py-2 px-3 bg-white hover:bg-slate-100 rounded-xl font-retro font-black text-xs text-[#0f172a]"
+                  className="btn-retro py-2.5 px-3 bg-amber-400 hover:bg-amber-300 text-[#0f172a] rounded-xl text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_#0f172a]"
                 >
-                  🔑 JOIN MATCH
+                  <span>⚔️</span> JOIN ROOM
                 </button>
               </div>
             </div>
 
-            {/* Local Pass & Play with 2-4 Player Selection */}
-            <div className="p-3 bg-white hover:bg-blue-50 border-2 border-[#0f172a] rounded-2xl shadow-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-blue-200 border border-[#0f172a] flex items-center justify-center text-lg shrink-0">
-                    👥
+            {/* Local Modes (Pass & Play + AI) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              <div className="p-3 bg-white border-2 border-[#0f172a] rounded-2xl shadow-[2px_2px_0px_#0f172a] flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-black text-xs sm:text-sm text-[#0f172a]">📱 PASS & PLAY</span>
+                    <span className="text-[9px] font-mono font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
+                      SAME SCREEN
+                    </span>
                   </div>
-                  <div>
-                    <div className="font-black text-xs sm:text-sm text-[#0f172a]">PASS & PLAY (SAME DEVICE)</div>
-                    <div className="text-[10px] font-hand font-bold text-slate-500">Play together on this phone or screen</div>
+                  <p className="text-[11px] font-hand font-bold text-slate-500 mb-2">
+                    Take turns rolling the die on this device.
+                  </p>
+                  {/* Select player count */}
+                  <div className="flex items-center gap-1 mb-2">
+                    {[2, 3, 4].map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setLocalMaxPlayers(count)}
+                        className={`flex-1 py-1 rounded-lg text-[10px] font-black border transition-all ${
+                          localMaxPlayers === count
+                            ? 'bg-blue-600 text-white border-blue-900 shadow-xs'
+                            : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                        }`}
+                      >
+                        {count}P
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <button
@@ -332,204 +413,214 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                     onSelectLocal(localMaxPlayers);
                     onClose();
                   }}
-                  className="btn-retro px-3 py-1 bg-blue-600 text-white font-black text-xs rounded-lg"
+                  className="btn-retro w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-[#0f172a] rounded-xl text-xs font-black border border-[#0f172a]"
                 >
-                  PLAY {localMaxPlayers}P →
+                  START {localMaxPlayers}P MATCH
                 </button>
               </div>
 
-              {/* Player Count Buttons for Local */}
-              <div className="flex items-center gap-1.5 pt-1 border-t border-slate-100">
-                <span className="text-[10px] font-mono font-bold text-slate-500">Players:</span>
-                {[2, 3, 4].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setLocalMaxPlayers(n)}
-                    className={`px-2.5 py-0.5 rounded-lg border text-xs font-retro font-black transition-all ${
-                      localMaxPlayers === n
-                        ? 'bg-blue-600 text-white border-blue-900 shadow-xs scale-105'
-                        : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
-                    }`}
-                  >
-                    {n} Players
-                  </button>
-                ))}
+              <div className="p-3 bg-white border-2 border-[#0f172a] rounded-2xl shadow-[2px_2px_0px_#0f172a] flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-black text-xs sm:text-sm text-[#0f172a]">🤖 VS STICKBOT</span>
+                    <span className="text-[9px] font-mono font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                      SOLO AI
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-hand font-bold text-slate-500 mb-2">
+                    Test your tactical skill against AI warrior.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    onSelectAI();
+                    onClose();
+                  }}
+                  className="btn-retro w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-[#0f172a] rounded-xl text-xs font-black border border-[#0f172a]"
+                >
+                  FIGHT AI NOW
+                </button>
               </div>
             </div>
 
-            {/* Solo vs AI */}
-            <button
-              onClick={() => {
-                onSelectAI();
-                onClose();
-              }}
-              className="btn-retro w-full flex items-center justify-between p-2.5 bg-white hover:bg-purple-50 rounded-2xl text-left"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-purple-200 border border-[#0f172a] flex items-center justify-center text-lg shrink-0 shadow-xs">
-                  🤖
-                </div>
-                <div>
-                  <div className="font-black text-xs sm:text-sm text-[#0f172a]">SOLO VS STICKBOT (AI)</div>
-                  <div className="text-[10px] font-hand font-bold text-slate-500">Battle against the automated notebook bot</div>
-                </div>
-              </div>
-              <span className="text-xs font-black text-purple-700">FIGHT →</span>
-            </button>
+            <div className="text-center pt-2">
+              <button
+                onClick={onOpenFirebaseConfig}
+                className="text-[10px] font-mono text-slate-500 hover:text-slate-800 underline"
+              >
+                ⚙️ Advanced Cloud Database Setup (Optional)
+              </button>
+            </div>
           </div>
         )}
 
-        {/* TAB 2: HOST SETUP (SELECT NUMBER OF PLAYERS & CONFIRM NAME) */}
+        {/* TAB 2: HOST SETUP (SELECT NUMBER OF PLAYERS & NAME) */}
         {activeTab === 'host_setup' && (
           <div className="py-2 space-y-3 font-retro">
-            {/* Step 1: Commander Name */}
-            <div className="p-3 bg-amber-50 border-2 border-[#0f172a] rounded-2xl space-y-1">
-              <label className="block text-[10px] font-mono font-black text-amber-950 uppercase tracking-wider">
-                1. YOUR COMMANDER NAME:
+            {/* Step 1: Host Name Input */}
+            <div className="p-3 bg-blue-50 border-2 border-[#0f172a] rounded-2xl space-y-1">
+              <label className="block text-[10px] font-mono font-black text-blue-950 uppercase tracking-wider">
+                YOUR COMMANDER NAME:
               </label>
               <input
                 type="text"
                 value={playerName}
                 onChange={(e) => savePlayerName(e.target.value)}
-                placeholder="Enter your name (e.g. Vishal, Sasithra)"
+                placeholder="Enter host name (e.g. Vishal)"
                 maxLength={14}
-                autoFocus
                 className="w-full text-base font-retro font-black text-blue-950 bg-white border-2 border-[#0f172a] rounded-xl py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-amber-400 shadow-xs"
               />
             </div>
 
-            {/* Step 2: Player Count Selection */}
-            <div className="p-3 bg-blue-50 border-2 border-[#0f172a] rounded-2xl space-y-2">
-              <label className="block text-[10px] font-mono font-black text-blue-950 uppercase tracking-wider">
-                2. HOW MANY PLAYERS IN THIS MATCH?
+            {/* Step 2: Player Count Selector (2, 3, or 4 Players) */}
+            <div className="p-3 bg-amber-50 border-2 border-[#0f172a] rounded-2xl space-y-2">
+              <label className="block text-[10px] font-mono font-black text-amber-950 uppercase tracking-wider">
+                CHOOSE NUMBER OF PLAYERS:
               </label>
               <div className="grid grid-cols-3 gap-2">
-                {[2, 3, 4].map((num) => (
+                {[
+                  { count: 2, label: '2 PLAYERS', icon: '👥', desc: '1v1 Classic Duel' },
+                  { count: 3, label: '3 PLAYERS', icon: '⚔️', desc: '3-Way Free For All' },
+                  { count: 4, label: '4 PLAYERS', icon: '🛡️', desc: '4-Squad Rumble' }
+                ].map((item) => (
                   <button
-                    key={num}
+                    key={item.count}
                     type="button"
-                    onClick={() => setSelectedMaxPlayers(num)}
-                    className={`py-2 px-1 rounded-xl border-2 font-retro font-black text-center transition-all ${
-                      selectedMaxPlayers === num
-                        ? 'bg-amber-400 text-slate-950 border-[#0f172a] shadow-[2px_2px_0px_#0f172a] scale-102 ring-2 ring-amber-300'
-                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                    onClick={() => setSelectedMaxPlayers(item.count)}
+                    className={`p-2.5 rounded-xl border-2 flex flex-col items-center justify-center transition-all ${
+                      selectedMaxPlayers === item.count
+                        ? 'bg-blue-600 text-white border-[#0f172a] shadow-[3px_3px_0px_#0f172a] scale-102 ring-2 ring-amber-300'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 hover:border-slate-400'
                     }`}
                   >
-                    <div className="text-base sm:text-lg">
-                      {num === 2 ? '👥 2P' : num === 3 ? '⚔️ 3P' : '🛡️ 4P'}
-                    </div>
-                    <div className="text-[9px] font-mono font-bold uppercase mt-0.5">
-                      {num === 2 ? 'DUEL' : num === 3 ? 'TRIO WAR' : '4-WAY BRAWL'}
-                    </div>
+                    <span className="text-xl mb-0.5">{item.icon}</span>
+                    <span className="text-xs font-black">{item.label}</span>
+                    <span className={`text-[8px] font-mono ${selectedMaxPlayers === item.count ? 'text-blue-100' : 'text-slate-500'}`}>
+                      {item.desc}
+                    </span>
                   </button>
                 ))}
               </div>
+            </div>
 
-              {/* Roster Squad Preview */}
-              <div className="pt-2 border-t border-blue-200">
-                <span className="text-[9px] font-mono font-bold text-slate-500 block mb-1">
-                  Squad Colors in this battle:
+            {/* Squads Preview */}
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+              <span className="text-[9px] font-mono font-black text-slate-500 uppercase tracking-wider block">
+                ACTIVE SQUADS IN THIS MATCH:
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="px-2 py-0.5 rounded-lg bg-blue-100 border border-blue-300 text-[10px] font-black text-blue-900 flex items-center gap-1">
+                  🤠 P1 (Host)
                 </span>
-                <div className="flex flex-wrap gap-1.5">
-                  <span className="px-2 py-0.5 rounded-full bg-blue-100 border border-blue-500 text-blue-900 text-[10px] font-black">
-                    🔵 P1: {playerName.trim() || 'You'} (Host)
+                <span className="px-2 py-0.5 rounded-lg bg-rose-100 border border-rose-300 text-[10px] font-black text-rose-900 flex items-center gap-1">
+                  🥷 P2 (Guest)
+                </span>
+                {selectedMaxPlayers >= 3 && (
+                  <span className="px-2 py-0.5 rounded-lg bg-emerald-100 border border-emerald-300 text-[10px] font-black text-emerald-900 flex items-center gap-1">
+                    🧙 P3 (Guest)
                   </span>
-                  <span className="px-2 py-0.5 rounded-full bg-rose-100 border border-rose-500 text-rose-900 text-[10px] font-black">
-                    🔴 P2 (Guest 1)
+                )}
+                {selectedMaxPlayers >= 4 && (
+                  <span className="px-2 py-0.5 rounded-lg bg-purple-100 border border-purple-300 text-[10px] font-black text-purple-900 flex items-center gap-1">
+                    🤖 P4 (Guest)
                   </span>
-                  {selectedMaxPlayers >= 3 && (
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-500 text-emerald-900 text-[10px] font-black">
-                      🟢 P3 (Guest 2)
-                    </span>
-                  )}
-                  {selectedMaxPlayers >= 4 && (
-                    <span className="px-2 py-0.5 rounded-full bg-purple-100 border border-purple-500 text-purple-900 text-[10px] font-black">
-                      🟣 P4 (Guest 3)
-                    </span>
-                  )}
-                </div>
+                )}
               </div>
             </div>
 
-            {/* Launch Action */}
-            <div className="pt-1 flex items-center justify-between gap-2">
+            {/* Buttons */}
+            <div className="flex gap-2 pt-1">
               <button
+                type="button"
                 onClick={() => setActiveTab('modes')}
-                className="btn-retro px-4 py-2 bg-white text-slate-700 rounded-xl text-xs font-black"
+                className="btn-retro flex-1 py-2 bg-slate-100 text-[#0f172a] rounded-xl text-xs font-black border border-[#0f172a]"
               >
                 ← BACK
               </button>
               <button
+                type="button"
                 onClick={handleLaunchRoom}
-                className="btn-retro flex-1 py-2.5 px-4 bg-amber-400 hover:bg-amber-300 text-[#0f172a] rounded-xl text-sm font-black shadow-[3px_3px_0px_#0f172a]"
+                className="btn-retro flex-2 py-2 bg-amber-400 hover:bg-amber-300 text-[#0f172a] rounded-xl text-xs font-black shadow-[2px_2px_0px_#0f172a]"
               >
-                🚀 LAUNCH {selectedMaxPlayers}-PLAYER ROOM →
+                GENERATE {selectedMaxPlayers}-PLAYER ROOM ➔
               </button>
             </div>
           </div>
         )}
 
-        {/* TAB 3: HOST WAITING LOBBY */}
+        {/* TAB 3: HOST WAITING LOBBY (LIVE ROSTER) */}
         {activeTab === 'host' && (
-          <div className="text-center py-2 space-y-3 font-retro">
-            {/* Room Code Badge */}
-            <div className="space-y-1">
-              <span className="px-3 py-0.5 bg-amber-300 border-2 border-[#0f172a] rounded-full text-[10px] font-black uppercase tracking-wider text-[#0f172a] shadow-xs inline-block">
-                MATCH ROOM CODE ({totalJoinedCount}/{selectedMaxPlayers} PLAYERS)
+          <div className="py-2 space-y-3 font-retro">
+            {/* Room Code Card */}
+            <div className="p-3 bg-amber-50 border-2 sm:border-3 border-[#0f172a] rounded-2xl text-center shadow-[3px_3px_0px_#0f172a]">
+              <span className="text-[10px] font-mono font-bold text-amber-900 uppercase tracking-widest block mb-0.5">
+                SHARE THIS MATCH CODE WITH YOUR FRIENDS:
               </span>
-
-              <div
-                className="text-4xl sm:text-5xl font-mono font-black tracking-widest text-blue-900 select-all cursor-pointer bg-white py-2.5 px-4 rounded-2xl border-3 border-dashed border-blue-500 max-w-xs mx-auto shadow-inner"
-                onClick={copyCodeOnly}
-              >
+              <div className="text-3xl sm:text-4xl font-mono font-black text-[#0f172a] tracking-widest uppercase my-1 select-all">
                 {roomCode}
               </div>
-              <span className="text-[11px] font-hand font-bold text-slate-500">Tap code to copy</span>
+
+              <div className="flex items-center justify-center gap-2 pt-1">
+                <button
+                  onClick={copyCodeOnly}
+                  className="btn-retro py-1.5 px-3 bg-white hover:bg-slate-50 text-[#0f172a] rounded-xl text-xs font-black flex items-center gap-1 shadow-xs"
+                >
+                  <span>{copyCodeSuccess ? '✓ COPIED!' : '📋 COPY CODE'}</span>
+                </button>
+                <button
+                  onClick={copyMatchLink}
+                  className="btn-retro py-1.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black flex items-center gap-1 shadow-xs"
+                >
+                  <span>{copyLinkSuccess ? '✓ LINK COPIED!' : '🔗 SHARE INVITE LINK'}</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex flex-wrap justify-center gap-2">
-              <button
-                onClick={copyCodeOnly}
-                className="btn-retro px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black inline-flex items-center gap-1"
-              >
-                <span>{copyCodeSuccess ? '✓ COPIED!' : '📋 COPY CODE'}</span>
-              </button>
-              <button
-                onClick={copyMatchLink}
-                className="btn-retro px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-[#0f172a] rounded-xl text-xs font-black inline-flex items-center gap-1"
-              >
-                <span>{copyLinkSuccess ? '✓ LINK COPIED!' : '🔗 COPY MATCH LINK'}</span>
-              </button>
+            {/* Host Commander Name Live Edit */}
+            <div className="p-2.5 bg-blue-50 border-2 border-blue-400 rounded-xl flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span className="text-xl">🤠</span>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[9px] font-mono font-black text-blue-900 block">HOSTING AS (SLOT P1):</span>
+                  <input
+                    type="text"
+                    value={playerName}
+                    onChange={(e) => savePlayerName(e.target.value)}
+                    placeholder="Enter your name"
+                    maxLength={14}
+                    className="w-full text-xs font-retro font-black text-blue-950 bg-white border border-blue-300 rounded px-1.5 py-0.5 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <span className="text-[9px] font-mono font-bold text-blue-800 bg-blue-200 px-2 py-0.5 rounded-full shrink-0">
+                HOST
+              </span>
             </div>
 
-            {/* Live Player Slots Grid */}
-            <div className="p-3 bg-white border-2 sm:border-3 border-[#0f172a] rounded-2xl shadow-xs space-y-2 text-left">
-              <div className="flex items-center justify-between border-b border-slate-200 pb-1">
-                <span className="font-retro font-black text-xs text-slate-800">
-                  PLAYER SLOTS ({totalJoinedCount}/{selectedMaxPlayers} READY):
+            {/* Live Player Slots (All 2, 3, or 4 Players) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[10px] font-mono font-black text-slate-600 uppercase">
+                  CONNECTED PLAYERS ({totalJoinedCount} OF {selectedMaxPlayers}):
                 </span>
-                <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-100 px-2 py-0.2 rounded-full border border-emerald-400">
-                  PORT 443 WSS
+                <span className="text-[10px] font-mono font-bold text-amber-700 animate-pulse">
+                  {totalJoinedCount >= selectedMaxPlayers ? 'ROOM FULL' : 'WAITING FOR PLAYERS...'}
                 </span>
               </div>
 
-              <div className="space-y-1.5">
+              <div className="grid grid-cols-1 gap-1.5">
                 {/* Slot 1: Host */}
-                <div className="p-2 rounded-xl bg-blue-50 border border-blue-400 flex items-center justify-between">
+                <div className="p-2 rounded-xl border bg-blue-50 border-blue-300 flex items-center justify-between shadow-xs">
                   <div className="flex items-center gap-2">
                     <span className="text-base">{PLAYER_CONFIGS.p1.avatar}</span>
                     <div>
-                      <div className="font-retro font-black text-xs text-blue-950 flex items-center gap-1">
-                        <span>{connectedRoster.p1 || playerName.trim() || 'Player 1'}</span>
-                        <span className="px-1 py-0 rounded bg-blue-600 text-white text-[8px] font-mono font-black">
-                          HOST (YOU)
-                        </span>
+                      <div className="font-retro font-black text-xs text-blue-950">
+                        {connectedRoster.p1 || playerName.trim() || 'Player 1'}
                       </div>
-                      <span className="text-[9px] font-mono text-blue-700">Slot P1 • Blue Squad</span>
+                      <span className="text-[9px] font-mono text-slate-500">Slot P1 (Host) • Blue Squad</span>
                     </div>
                   </div>
-                  <span className="text-xs text-emerald-600 font-bold">✓ READY</span>
+                  <span className="text-xs text-emerald-600 font-bold">✓ HOST READY</span>
                 </div>
 
                 {/* Slot 2: Player 2 */}
@@ -625,7 +716,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             {/* Launch Game Action Button */}
             <div className="pt-1">
               <button
-                onClick={() => onClose()}
+                onClick={handleHostStartBattle}
                 disabled={totalJoinedCount < 2}
                 className={`btn-retro w-full py-2.5 px-4 rounded-xl text-sm font-black transition-all ${
                   totalJoinedCount >= 2
@@ -653,7 +744,202 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           </div>
         )}
 
-        {/* TAB 4: JOIN ROOM */}
+        {/* TAB 4: GUEST WAITING LOBBY (SHOWN ONCE GUEST JOINS ROOM) */}
+        {activeTab === 'guest_lobby' && (
+          <div className="py-2 space-y-3 font-retro">
+            {/* Room Code & Connection Confirmation */}
+            <div className="p-3 bg-emerald-50 border-2 sm:border-3 border-emerald-600 rounded-2xl text-center shadow-[3px_3px_0px_#0f172a]">
+              <div className="flex items-center justify-center gap-1.5 mb-1 text-emerald-800">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                <span className="text-xs font-mono font-black uppercase tracking-wider">
+                  ✓ CONNECTED TO ROOM MATCH
+                </span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-mono font-black text-[#0f172a] tracking-widest uppercase my-0.5">
+                {roomCode}
+              </div>
+              <p className="text-[11px] font-hand font-bold text-slate-600">
+                Hosted by <strong className="text-blue-900">{hostCommanderName || connectedRoster.p1}</strong> • {selectedMaxPlayers}-Player Battle
+              </p>
+            </div>
+
+            {/* Guest's Assigned Squad Card */}
+            <div className="p-3 bg-white border-2 border-[#0f172a] rounded-2xl shadow-xs space-y-1.5">
+              <span className="text-[9px] font-mono font-black text-slate-500 uppercase tracking-wider block">
+                YOUR COMMANDER PROFILE:
+              </span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-xl text-white shadow-xs"
+                    style={{ backgroundColor: PLAYER_CONFIGS[assignedSlot]?.inkColor || '#dc2626' }}
+                  >
+                    {PLAYER_CONFIGS[assignedSlot]?.avatar || '🥷'}
+                  </div>
+                  <div>
+                    <div className="font-retro font-black text-sm text-[#0f172a]">
+                      {playerName.trim() || 'You'} <span className="text-xs text-emerald-600 font-bold">(YOU)</span>
+                    </div>
+                    <div className="text-[10px] font-mono font-bold text-slate-500">
+                      Slot {assignedSlot.toUpperCase()} • {PLAYER_CONFIGS[assignedSlot]?.label || 'SQUAD'}
+                    </div>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono font-black text-emerald-700 bg-emerald-100 border border-emerald-400 px-2 py-0.5 rounded-full">
+                  ✓ READY
+                </span>
+              </div>
+            </div>
+
+            {/* Match Roster Overview */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[10px] font-mono font-black text-slate-600 uppercase">
+                  COMMANDERS IN ROOM ({totalJoinedCount} OF {selectedMaxPlayers}):
+                </span>
+                <span className="text-[10px] font-mono font-bold text-blue-700">
+                  {totalJoinedCount >= selectedMaxPlayers ? 'ALL SLOTS FULL' : 'WAITING FOR OTHERS...'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-1.5">
+                {/* Slot 1: Host */}
+                <div className="p-2 rounded-xl border bg-blue-50 border-blue-300 flex items-center justify-between shadow-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{PLAYER_CONFIGS.p1.avatar}</span>
+                    <div>
+                      <div className="font-retro font-black text-xs text-blue-950">
+                        {connectedRoster.p1 || hostCommanderName}
+                      </div>
+                      <span className="text-[9px] font-mono text-slate-500">Slot P1 (Host) • Blue Squad</span>
+                    </div>
+                  </div>
+                  <span className="text-xs text-blue-700 font-bold">✓ HOST</span>
+                </div>
+
+                {/* Slot 2 */}
+                <div
+                  className={`p-2 rounded-xl border flex items-center justify-between ${
+                    connectedRoster.p2 && !connectedRoster.p2.includes('Waiting')
+                      ? 'bg-rose-50 border-rose-300 shadow-xs'
+                      : 'bg-slate-50 border-dashed border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{PLAYER_CONFIGS.p2.avatar}</span>
+                    <div>
+                      <div className="font-retro font-black text-xs text-rose-950">
+                        {connectedRoster.p2 || 'Waiting for Player 2...'}
+                        {assignedSlot === 'p2' && <span className="ml-1 text-[10px] text-emerald-600">(YOU)</span>}
+                      </div>
+                      <span className="text-[9px] font-mono text-slate-500">Slot P2 • Red Squad</span>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-xs font-bold ${
+                      connectedRoster.p2 && !connectedRoster.p2.includes('Waiting')
+                        ? 'text-emerald-600'
+                        : 'text-amber-600 animate-pulse'
+                    }`}
+                  >
+                    {connectedRoster.p2 && !connectedRoster.p2.includes('Waiting') ? '✓ CONNECTED' : 'WAITING...'}
+                  </span>
+                </div>
+
+                {/* Slot 3 */}
+                {selectedMaxPlayers >= 3 && (
+                  <div
+                    className={`p-2 rounded-xl border flex items-center justify-between ${
+                      connectedRoster.p3 && !connectedRoster.p3.includes('Waiting')
+                        ? 'bg-emerald-50 border-emerald-300 shadow-xs'
+                        : 'bg-slate-50 border-dashed border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{PLAYER_CONFIGS.p3.avatar}</span>
+                      <div>
+                        <div className="font-retro font-black text-xs text-emerald-950">
+                          {connectedRoster.p3 || 'Waiting for Player 3...'}
+                          {assignedSlot === 'p3' && <span className="ml-1 text-[10px] text-emerald-600">(YOU)</span>}
+                        </div>
+                        <span className="text-[9px] font-mono text-slate-500">Slot P3 • Green Squad</span>
+                      </div>
+                    </div>
+                    <span
+                      className={`text-xs font-bold ${
+                        connectedRoster.p3 && !connectedRoster.p3.includes('Waiting')
+                          ? 'text-emerald-600'
+                          : 'text-amber-600 animate-pulse'
+                      }`}
+                    >
+                      {connectedRoster.p3 && !connectedRoster.p3.includes('Waiting') ? '✓ CONNECTED' : 'WAITING...'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Slot 4 */}
+                {selectedMaxPlayers >= 4 && (
+                  <div
+                    className={`p-2 rounded-xl border flex items-center justify-between ${
+                      connectedRoster.p4 && !connectedRoster.p4.includes('Waiting')
+                        ? 'bg-purple-50 border-purple-300 shadow-xs'
+                        : 'bg-slate-50 border-dashed border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{PLAYER_CONFIGS.p4.avatar}</span>
+                      <div>
+                        <div className="font-retro font-black text-xs text-purple-950">
+                          {connectedRoster.p4 || 'Waiting for Player 4...'}
+                          {assignedSlot === 'p4' && <span className="ml-1 text-[10px] text-emerald-600">(YOU)</span>}
+                        </div>
+                        <span className="text-[9px] font-mono text-slate-500">Slot P4 • Purple Squad</span>
+                      </div>
+                    </div>
+                    <span
+                      className={`text-xs font-bold ${
+                        connectedRoster.p4 && !connectedRoster.p4.includes('Waiting')
+                          ? 'text-emerald-600'
+                          : 'text-amber-600 animate-pulse'
+                      }`}
+                    >
+                      {connectedRoster.p4 && !connectedRoster.p4.includes('Waiting') ? '✓ CONNECTED' : 'WAITING...'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Waiting for Host Status Banner */}
+            <div className="p-3 bg-amber-100/90 border-2 border-[#0f172a] rounded-2xl text-center space-y-1 shadow-[2px_2px_0px_#0f172a]">
+              <div className="flex items-center justify-center gap-2 text-amber-950 font-black text-xs sm:text-sm">
+                <span className="animate-spin text-base">⏳</span>
+                <span>
+                  {totalJoinedCount >= selectedMaxPlayers
+                    ? `ALL PLAYERS IN ROOM! WAITING FOR HOST TO START...`
+                    : `WAITING FOR OTHER PLAYERS OR FOR HOST TO START...`}
+                </span>
+              </div>
+              <p className="text-[10px] font-mono text-amber-900">
+                The match will automatically launch when Host ({hostCommanderName || 'Host'}) taps "Enter Battlefield"!
+              </p>
+            </div>
+
+            <div className="pt-1 text-center">
+              <button
+                onClick={() => {
+                  networkManager.disconnect();
+                  setActiveTab('modes');
+                }}
+                className="btn-retro px-4 py-1.5 bg-white text-slate-700 hover:text-rose-700 rounded-xl text-xs font-black border border-slate-300"
+              >
+                ← Leave Room
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: JOIN ROOM (ENTER CODE) */}
         {activeTab === 'join' && (
           <div className="py-2 space-y-3 font-retro">
             {/* Step 1: Commander Name */}
@@ -732,3 +1018,5 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     </div>
   );
 };
+
+export default MultiplayerModal;
