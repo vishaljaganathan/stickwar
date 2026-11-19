@@ -35,6 +35,7 @@ type ListenerMap = {
   voiceSignal: (payload: any) => void;
   reaction: (emoji: string) => void;
   stateSync: (state: Partial<GameState>) => void;
+  connected: () => void;
 };
 
 /**
@@ -77,7 +78,8 @@ export class P2PNetworkManager {
     playerKicked: [],
     voiceSignal: [],
     reaction: [],
-    stateSync: []
+    stateSync: [],
+    connected: []
   };
 
   // Backwards-compatible single callback hooks
@@ -496,6 +498,7 @@ export class P2PNetworkManager {
               onSuccess: () => {
                 console.log('[MQTT] Subscribed to topic:', topic);
                 this.startHeartbeat(topic);
+                this.emit('connected');
                 onSuccess();
               },
               onFailure: (err) => {
@@ -525,7 +528,9 @@ export class P2PNetworkManager {
         return; // Ignore own published packets
       }
 
-      console.log(`[Relay Received] ${packet.type} from ${packet.senderRole} (${packet.playerName || packet.senderId})`);
+      if (packet.type !== 'VOICE_SIGNAL') {
+        console.log(`[Relay Received] ${packet.type} from ${packet.senderRole} (${packet.playerName || packet.senderId})`);
+      }
 
       const { cleanCode } = P2PNetworkManager.normalizeRoomCode(this.roomCode);
       const topic = this.getTopic(cleanCode);

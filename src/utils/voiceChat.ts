@@ -127,6 +127,28 @@ export class VoiceChatManager {
       typeof window.RTCPeerConnection === 'function';
 
     this.attachAudioUnlock();
+
+    // Re-announce presence whenever network connects or reconnects
+    networkManager.addListener('connected', () => {
+      if (this.isJoined) {
+        this.announcePresence();
+      }
+    });
+  }
+
+  // Announce voice presence to all players in the room
+  public announcePresence() {
+    if (!this.isJoined) return;
+    this.myClientId = networkManager.clientId;
+    try {
+      networkManager.sendVoiceSignal({
+        signalType: 'join',
+        fromClientId: this.myClientId,
+        slot: this.mySlot,
+        playerName: this.myPlayerName,
+        isMuted: this.isMuted
+      });
+    } catch {}
   }
 
   // Attach touch/click listener to ensure AudioContext and HTML Audio are unlocked by mobile OS
@@ -229,34 +251,27 @@ export class VoiceChatManager {
       const float32 = this.base64ToFloat32Array(base64);
       if (!float32 || float32.length === 0) return;
 
-      // 2. Micro-fade edge smoothing to completely remove boundary clicks and pops
-      const fadeLen = Math.min(16, Math.floor(float32.length / 4));
-      for (let i = 0; i < fadeLen; i++) {
-        const factor = i / fadeLen;
-        float32[i] *= factor;
-        float32[float32.length - 1 - i] *= factor;
-      }
-
-      // 3. Create audio buffer
+      // 2. Create audio buffer
       const buffer = this.audioContext.createBuffer(1, float32.length, sampleRate);
       buffer.getChannelData(0).set(float32);
 
-      // 4. Create buffer source and route through Dynamics Compressor for clean, unclipped broadcast audio
+      // 3. Create buffer source and route through Dynamics Compressor for clean, unclipped broadcast audio
       const source = this.audioContext.createBufferSource();
       source.buffer = buffer;
       const audioDest = this.getAudioDestination();
       source.connect(audioDest);
 
-      // 5. Ultra-low-latency jitter buffer scheduling (clamped between 15ms and 75ms to eliminate lag)
+      // 4. Smooth, continuous jitter buffer scheduling
       const now = this.audioContext.currentTime;
       let nextPlayTime = this.peerPlayTimes.get(fromClientId) || 0;
-      const leadTime = nextPlayTime - now;
 
-      if (leadTime < 0) {
-        nextPlayTime = now + 0.015; // Tight 15ms safety cushion
-      } else if (leadTime > 0.075) {
-        // Fast-forward backlog immediately so lag never accumulates
-        nextPlayTime = now + 0.015;
+      // If buffer underran or starting: start with a smooth 35ms cushion to absorb mobile network jitter
+      if (nextPlayTime < now) {
+        nextPlayTime = now + 0.035;
+      } else if (nextPlayTime - now > 0.22) {
+        // If network delay caused chunks to arrive in a burst >220ms in the future,
+        // catch up to now + 0.035 to prevent creeping lag!
+        nextPlayTime = now + 0.035;
       }
 
       source.start(nextPlayTime);
@@ -534,15 +549,17 @@ export class VoiceChatManager {
 
       const source = this.audioContext.createMediaStreamSource(stream);
 
-      // 1. Hardware Highpass filter (80Hz): removes phone handling vibration, desk thumps & rumble
+      // 1. Hardware Highpass filter (100Hz): removes phone handling vibration, desk thumps & room rumble
       const highpass = this.audioContext.createBiquadFilter();
       highpass.type = 'highpass';
-      highpass.frequency.setValueAtTime(80, this.audioContext.currentTime);
+      highpass.frequency.setValueAtTime(100, this.audioContext.currentTime);
+      highpass.Q.setValueAtTime(0.707, this.audioContext.currentTime);
 
-      // 2. Hardware Lowpass filter (10.5kHz): eliminates background hiss, coil whine & aliasing
+      // 2. Hardware Lowpass filter (7500Hz): cuts out harsh high-frequency hissing, fan noise & aliasing
       const lowpass = this.audioContext.createBiquadFilter();
       lowpass.type = 'lowpass';
-      lowpass.frequency.setValueAtTime(10500, this.audioContext.currentTime);
+      lowpass.frequency.setValueAtTime(7500, this.audioContext.currentTime);
+      lowpass.Q.setValueAtTime(0.707, this.audioContext.currentTime);
 
       source.connect(highpass);
       highpass.connect(lowpass);
@@ -592,14 +609,6 @@ export class VoiceChatManager {
           const sampleRate = this.audioContext?.sampleRate || 48000;
           const targetRate = 24000; // 24kHz HD Voice rate
           const resampled = this.resampleAudio(input, sampleRate, targetRate);
-
-          // Micro-fade chunk boundaries to prevent digital click/pop noise
-          const fadeLen = Math.min(16, Math.floor(resampled.length / 4));
-          for (let i = 0; i < fadeLen; i++) {
-            const factor = i / fadeLen;
-            resampled[i] *= factor;
-            resampled[resampled.length - 1 - i] *= factor;
-          }
 
           const int16 = new Int16Array(resampled.length);
           for (let i = 0; i < resampled.length; i++) {
@@ -684,7 +693,7 @@ export class VoiceChatManager {
 
     // CASE 0: Real-time Audio Chunk received via Relay
     if (signalType === 'audio_chunk' && signal.data) {
-      this.playRemoteAudioChunk(fromClientId, signal.slot, signal.data, signal.sampleRate || 12000);
+      this.playRemoteAudioChunk(fromClientId, signal.slot, signal.data, signal.sampleRate || 24000);
       return;
     }
 
@@ -931,33 +940,9 @@ export class VoiceChatManager {
       }
     };
 
-    // On remote audio track received (P2P fallback)
+    // On remote audio track received (Signaled via WebRTC, played via WSS VoIP Relay to avoid duplicate audio/echo)
     pc.ontrack = (event) => {
-      console.log(`[Voice] Audio track received from ${clientId} (${name})`, event.streams);
-      const isRelayActive = Date.now() - (this.lastRelayChunkTime.get(clientId) || 0) < 5000;
-      if (isRelayActive) {
-        // Relay is actively handling this peer's audio with volume boost and jitter buffering; skip P2P to avoid echo.
-        return;
-      }
-      const stream = event.streams[0] || new MediaStream([event.track]);
-
-      // Route 1: Web Audio API (Direct to hardware speakers)
-      try {
-        if (!this.audioContext || this.audioContext.state === 'closed') {
-          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-          if (AudioCtx) this.audioContext = new AudioCtx();
-        }
-        if (this.audioContext) {
-          if (this.audioContext.state === 'suspended') {
-            this.audioContext.resume().catch(() => {});
-          }
-          const source = this.audioContext.createMediaStreamSource(stream);
-          source.connect(this.audioContext.destination);
-          console.log(`[Voice] Connected remote stream to AudioContext destination for ${clientId}`);
-        }
-      } catch (err) {
-        console.warn('[Voice] Web Audio routing error:', err);
-      }
+      console.log(`[Voice] P2P audio track signaled from ${clientId} (${name})`, event.streams);
     };
 
     pc.oniceconnectionstatechange = () => {

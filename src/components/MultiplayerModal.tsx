@@ -92,6 +92,12 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   });
   const [totalJoinedCount, setTotalJoinedCount] = useState<number>(1);
 
+  // Active speaker detection in lobby
+  const speakingSlot = (['p1', 'p2', 'p3', 'p4'] as PlayerId[]).find(
+    (pid) => voiceStatus.speakingSlots[pid]
+  );
+  const speakingCommanderName = speakingSlot ? (connectedRoster[speakingSlot] || speakingSlot.toUpperCase()) : null;
+
   const savePlayerName = (name: string) => {
     setPlayerName(name);
     try {
@@ -159,6 +165,9 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         return next;
       });
       setNetworkStatus(`⚡ ${name} joined as ${PLAYER_CONFIGS[playerId]?.label || playerId.toUpperCase()} (${count}/${max})`);
+      if (enableVoiceChat && voiceManager.isJoined) {
+        voiceManager.announcePresence();
+      }
     });
 
     const unsubRoster = networkManager.addListener('rosterUpdated', (roster) => {
@@ -199,7 +208,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
       setSelectedMaxPlayers(networkManager.maxPlayers);
 
       if (enableVoiceChat) {
-        voiceManager.updateSlot(assignedId, playerName.trim() || 'Player');
+        voiceManager.joinVoice(assignedId, playerName.trim() || 'Player');
       }
 
       const namedRoster: Record<PlayerId, string> = {
@@ -299,10 +308,6 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     setIsConnecting(true);
     setErrorMessage('');
     setNetworkStatus(`Connecting to room ${normalized.displayCode}...`);
-
-    if (enableVoiceChat) {
-      voiceManager.joinVoice('p2', cleanGuestName);
-    }
 
     onStartOnlineJoin(
       onlineType === 'firebase' ? 'online_firebase' : 'online_p2p',
@@ -729,11 +734,17 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   {voiceStatus.isJoined ? (voiceStatus.isMuted ? '🔇' : '🎙️') : '🔈'}
                 </div>
                 <div>
-                  <div className="text-xs font-black font-retro text-[#0f172a] flex items-center gap-1.5">
+                  <div className="text-xs font-black font-retro text-[#0f172a] flex items-center gap-1.5 flex-wrap">
                     {voiceStatus.isJoined ? 'VOICE CHAT CONNECTED' : 'VOICE CHAT OFF'}
                     {voiceStatus.isJoined && (
                       <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">
                         {voiceStatus.activePeersCount} IN CALL
+                      </span>
+                    )}
+                    {speakingCommanderName && (
+                      <span className="px-1.5 py-0.2 rounded bg-emerald-950 border border-emerald-500 text-emerald-300 font-retro font-black text-[8px] flex items-center gap-1 animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                        <span>🎙️ {speakingCommanderName} speaking...</span>
                       </span>
                     )}
                   </div>
@@ -822,8 +833,13 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   <div className="flex items-center gap-2">
                     <span className="text-base">{PLAYER_CONFIGS.p1.avatar}</span>
                     <div>
-                      <div className="font-retro font-black text-xs text-blue-950">
-                        {connectedRoster.p1 || playerName.trim() || 'Player 1'}
+                      <div className="font-retro font-black text-xs text-blue-950 flex items-center gap-1.5">
+                        <span>{connectedRoster.p1 || playerName.trim() || 'Player 1'}</span>
+                        {voiceStatus.speakingSlots.p1 && (
+                          <span className="text-[7px] bg-emerald-500 text-slate-950 px-1 py-0.2 rounded font-bold animate-pulse">
+                            🎙️ TALKING
+                          </span>
+                        )}
                       </div>
                       <span className="text-[9px] font-mono text-slate-500">Slot P1 (Host) • Blue Squad</span>
                     </div>
@@ -842,8 +858,13 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   <div className="flex items-center gap-2">
                     <span className="text-base">{PLAYER_CONFIGS.p2.avatar}</span>
                     <div>
-                      <div className="font-retro font-black text-xs text-rose-950">
-                        {connectedRoster.p2 || 'Waiting for Player 2...'}
+                      <div className="font-retro font-black text-xs text-rose-950 flex items-center gap-1.5">
+                        <span>{connectedRoster.p2 || 'Waiting for Player 2...'}</span>
+                        {voiceStatus.speakingSlots.p2 && (
+                          <span className="text-[7px] bg-emerald-500 text-slate-950 px-1 py-0.2 rounded font-bold animate-pulse">
+                            🎙️ TALKING
+                          </span>
+                        )}
                       </div>
                       <span className="text-[9px] font-mono text-slate-500">Slot P2 • Red Squad</span>
                     </div>
@@ -871,8 +892,13 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="text-base">{PLAYER_CONFIGS.p3.avatar}</span>
                       <div>
-                        <div className="font-retro font-black text-xs text-emerald-950">
-                          {connectedRoster.p3 || 'Waiting for Player 3...'}
+                        <div className="font-retro font-black text-xs text-emerald-950 flex items-center gap-1.5">
+                          <span>{connectedRoster.p3 || 'Waiting for Player 3...'}</span>
+                          {voiceStatus.speakingSlots.p3 && (
+                            <span className="text-[7px] bg-emerald-500 text-slate-950 px-1 py-0.2 rounded font-bold animate-pulse">
+                              🎙️ TALKING
+                            </span>
+                          )}
                         </div>
                         <span className="text-[9px] font-mono text-slate-500">Slot P3 • Green Squad</span>
                       </div>
@@ -901,8 +927,13 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="text-base">{PLAYER_CONFIGS.p4.avatar}</span>
                       <div>
-                        <div className="font-retro font-black text-xs text-purple-950">
-                          {connectedRoster.p4 || 'Waiting for Player 4...'}
+                        <div className="font-retro font-black text-xs text-purple-950 flex items-center gap-1.5">
+                          <span>{connectedRoster.p4 || 'Waiting for Player 4...'}</span>
+                          {voiceStatus.speakingSlots.p4 && (
+                            <span className="text-[7px] bg-emerald-500 text-slate-950 px-1 py-0.2 rounded font-bold animate-pulse">
+                              🎙️ TALKING
+                            </span>
+                          )}
                         </div>
                         <span className="text-[9px] font-mono text-slate-500">Slot P4 • Purple Squad</span>
                       </div>
@@ -986,11 +1017,17 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   {voiceStatus.isJoined ? (voiceStatus.isMuted ? '🔇' : '🎙️') : '🔈'}
                 </div>
                 <div>
-                  <div className="text-xs font-black font-retro text-[#0f172a] flex items-center gap-1.5">
+                  <div className="text-xs font-black font-retro text-[#0f172a] flex items-center gap-1.5 flex-wrap">
                     {voiceStatus.isJoined ? 'VOICE CHAT CONNECTED' : 'VOICE CHAT OFF'}
                     {voiceStatus.isJoined && (
                       <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-300">
                         {voiceStatus.activePeersCount} IN CALL
+                      </span>
+                    )}
+                    {speakingCommanderName && (
+                      <span className="px-1.5 py-0.2 rounded bg-emerald-950 border border-emerald-500 text-emerald-300 font-retro font-black text-[8px] flex items-center gap-1 animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                        <span>🎙️ {speakingCommanderName} speaking...</span>
                       </span>
                     )}
                   </div>
@@ -1086,8 +1123,13 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   <div className="flex items-center gap-2">
                     <span className="text-base">{PLAYER_CONFIGS.p1.avatar}</span>
                     <div>
-                      <div className="font-retro font-black text-xs text-blue-950">
-                        {connectedRoster.p1 || hostCommanderName}
+                      <div className="font-retro font-black text-xs text-blue-950 flex items-center gap-1.5">
+                        <span>{connectedRoster.p1 || hostCommanderName}</span>
+                        {voiceStatus.speakingSlots.p1 && (
+                          <span className="text-[7px] bg-emerald-500 text-slate-950 px-1 py-0.2 rounded font-bold animate-pulse">
+                            🎙️ TALKING
+                          </span>
+                        )}
                       </div>
                       <span className="text-[9px] font-mono text-slate-500">Slot P1 (Host) • Blue Squad</span>
                     </div>
@@ -1106,9 +1148,14 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   <div className="flex items-center gap-2">
                     <span className="text-base">{PLAYER_CONFIGS.p2.avatar}</span>
                     <div>
-                      <div className="font-retro font-black text-xs text-rose-950">
-                        {connectedRoster.p2 || 'Waiting for Player 2...'}
-                        {assignedSlot === 'p2' && <span className="ml-1 text-[10px] text-emerald-600">(YOU)</span>}
+                      <div className="font-retro font-black text-xs text-rose-950 flex items-center gap-1.5 flex-wrap">
+                        <span>{connectedRoster.p2 || 'Waiting for Player 2...'}</span>
+                        {assignedSlot === 'p2' && <span className="text-[10px] text-emerald-600">(YOU)</span>}
+                        {voiceStatus.speakingSlots.p2 && (
+                          <span className="text-[7px] bg-emerald-500 text-slate-950 px-1 py-0.2 rounded font-bold animate-pulse">
+                            🎙️ TALKING
+                          </span>
+                        )}
                       </div>
                       <span className="text-[9px] font-mono text-slate-500">Slot P2 • Red Squad</span>
                     </div>
@@ -1136,9 +1183,14 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="text-base">{PLAYER_CONFIGS.p3.avatar}</span>
                       <div>
-                        <div className="font-retro font-black text-xs text-emerald-950">
-                          {connectedRoster.p3 || 'Waiting for Player 3...'}
-                          {assignedSlot === 'p3' && <span className="ml-1 text-[10px] text-emerald-600">(YOU)</span>}
+                        <div className="font-retro font-black text-xs text-emerald-950 flex items-center gap-1.5 flex-wrap">
+                          <span>{connectedRoster.p3 || 'Waiting for Player 3...'}</span>
+                          {assignedSlot === 'p3' && <span className="text-[10px] text-emerald-600">(YOU)</span>}
+                          {voiceStatus.speakingSlots.p3 && (
+                            <span className="text-[7px] bg-emerald-500 text-slate-950 px-1 py-0.2 rounded font-bold animate-pulse">
+                              🎙️ TALKING
+                            </span>
+                          )}
                         </div>
                         <span className="text-[9px] font-mono text-slate-500">Slot P3 • Green Squad</span>
                       </div>
@@ -1167,9 +1219,14 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="text-base">{PLAYER_CONFIGS.p4.avatar}</span>
                       <div>
-                        <div className="font-retro font-black text-xs text-purple-950">
-                          {connectedRoster.p4 || 'Waiting for Player 4...'}
-                          {assignedSlot === 'p4' && <span className="ml-1 text-[10px] text-emerald-600">(YOU)</span>}
+                        <div className="font-retro font-black text-xs text-purple-950 flex items-center gap-1.5 flex-wrap">
+                          <span>{connectedRoster.p4 || 'Waiting for Player 4...'}</span>
+                          {assignedSlot === 'p4' && <span className="text-[10px] text-emerald-600">(YOU)</span>}
+                          {voiceStatus.speakingSlots.p4 && (
+                            <span className="text-[7px] bg-emerald-500 text-slate-950 px-1 py-0.2 rounded font-bold animate-pulse">
+                              🎙️ TALKING
+                            </span>
+                          )}
                         </div>
                         <span className="text-[9px] font-mono text-slate-500">Slot P4 • Purple Squad</span>
                       </div>
