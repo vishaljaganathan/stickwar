@@ -24,12 +24,38 @@ export interface VoiceState {
 
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
+    // Free Public STUN servers
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' }
-  ]
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:relay.metered.ca:80' },
+    // Metered Open Relay TURN Servers (UDP & TCP ports 80 & 443)
+    // Critical for Indian mobile networks (Jio 5G, Airtel, Vi) behind symmetric CGNAT
+    {
+      urls: 'turn:relay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:relay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:relay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turns:relay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  ],
+  iceCandidatePoolSize: 10,
+  iceTransportPolicy: 'all',
+  bundlePolicy: 'max-bundle'
 };
 
 export class VoiceChatManager {
@@ -44,6 +70,8 @@ export class VoiceChatManager {
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private speechCheckInterval: number | null = null;
+  private presenceHeartbeat: number | null = null;
+  private isUnlockAttached: boolean = false;
 
   // Peer connections: remoteClientId -> RTCPeerConnection
   private peerConnections: Map<string, RTCPeerConnection> = new Map();
@@ -66,6 +94,26 @@ export class VoiceChatManager {
       typeof navigator !== 'undefined' &&
       typeof navigator.mediaDevices?.getUserMedia === 'function' &&
       typeof window.RTCPeerConnection === 'function';
+  }
+
+  // Attach touch/click listener to ensure AudioContext and HTML Audio are never blocked by mobile OS
+  private attachAudioUnlock() {
+    if (this.isUnlockAttached || typeof window === 'undefined') return;
+    this.isUnlockAttached = true;
+
+    const unlock = () => {
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        this.audioContext.resume().catch(() => {});
+      }
+      this.remoteAudios.forEach((audio) => {
+        if (audio.paused && audio.srcObject) {
+          audio.play().catch(() => {});
+        }
+      });
+    };
+
+    window.addEventListener('click', unlock, { passive: true });
+    window.addEventListener('touchstart', unlock, { passive: true });
   }
 
   public subscribe(listener: (state: VoiceState) => void): () => void {
@@ -148,12 +196,14 @@ export class VoiceChatManager {
     this.notify();
 
     try {
-      // 1. Request microphone access
+      // 1. Request microphone access with high quality speech processing
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000
         },
         video: false
       });
@@ -163,8 +213,9 @@ export class VoiceChatManager {
       this.isJoined = true;
       this.isConnecting = false;
 
-      // 2. Start audio level analyser for speaking detection
+      // 2. Start audio level analyser & attach touch unlock
       this.startAudioAnalyser(stream);
+      this.attachAudioUnlock();
 
       // 3. Listen for signaling packets from room
       this.unsubSignal = networkManager.addListener('voiceSignal', (signal) => {
@@ -180,6 +231,21 @@ export class VoiceChatManager {
         isMuted: this.isMuted
       });
 
+      // 5. Start periodic presence announcement every 3.5s
+      this.stopHeartbeat();
+      this.presenceHeartbeat = window.setInterval(() => {
+        if (this.isJoined) {
+          networkManager.sendVoiceSignal({
+            signalType: 'presence',
+            fromClientId: this.myClientId,
+            slot: this.mySlot,
+            playerName: this.myPlayerName,
+            isMuted: this.isMuted,
+            isSpeaking: this.isSpeaking
+          });
+        }
+      }, 3500);
+
       this.notify();
       return true;
     } catch (err: any) {
@@ -194,9 +260,18 @@ export class VoiceChatManager {
     }
   }
 
+  private stopHeartbeat() {
+    if (this.presenceHeartbeat) {
+      clearInterval(this.presenceHeartbeat);
+      this.presenceHeartbeat = null;
+    }
+  }
+
   // Leave Voice Channel
   public leaveVoice() {
     if (!this.isJoined && !this.isConnecting) return;
+
+    this.stopHeartbeat();
 
     // Send leave announcement
     if (this.isJoined) {
@@ -338,7 +413,7 @@ export class VoiceChatManager {
 
     // CASE 1: Peer Joined Voice
     if (signalType === 'join') {
-      console.log(`[Voice] Peer joined: ${signal.playerName} (${signal.slot})`);
+      console.log(`[Voice] Peer joined: ${signal.playerName} (${signal.slot}) from ${fromClientId}`);
       this.remotePeers.set(fromClientId, {
         clientId: fromClientId,
         slot: signal.slot,
@@ -348,9 +423,44 @@ export class VoiceChatManager {
       });
       this.notify();
 
-      // Deterministic tie-breaker: the peer with higher string id initiates the offer
+      // Immediately respond with our presence so the joining peer knows we are already in voice!
+      networkManager.sendVoiceSignal({
+        signalType: 'presence',
+        fromClientId: this.myClientId,
+        toClientId: fromClientId,
+        slot: this.mySlot,
+        playerName: this.myPlayerName,
+        isMuted: this.isMuted,
+        isSpeaking: this.isSpeaking
+      });
+
+      // Tie-breaker: the peer with higher string id initiates the offer
       if (this.myClientId > fromClientId) {
+        console.log(`[Voice] Initiating connection to ${fromClientId} (I am offerer)`);
         this.initiatePeerConnection(fromClientId, signal.slot, signal.playerName);
+      }
+      return;
+    }
+
+    // CASE 1B: Presence Announced (from existing peers or periodic heartbeat)
+    if (signalType === 'presence') {
+      if (toClientId && toClientId !== this.myClientId) {
+        return; // Targeted to someone else
+      }
+      const existing = this.remotePeers.get(fromClientId);
+      this.remotePeers.set(fromClientId, {
+        clientId: fromClientId,
+        slot: signal.slot || existing?.slot || 'p2',
+        playerName: signal.playerName || existing?.playerName || 'Commander',
+        isMuted: !!signal.isMuted,
+        isSpeaking: !!signal.isSpeaking
+      });
+      this.notify();
+
+      // If we are the offerer (higher clientId) and we don't have a peer connection yet, initiate!
+      if (this.myClientId > fromClientId && !this.peerConnections.has(fromClientId)) {
+        console.log(`[Voice] Initiating connection to existing peer ${fromClientId} (I am offerer)`);
+        this.initiatePeerConnection(fromClientId, signal.slot || 'p2', signal.playerName || 'Commander');
       }
       return;
     }
@@ -519,6 +629,19 @@ export class VoiceChatManager {
       });
     }
 
+    // Ensure audio transceiver direction is sendrecv
+    try {
+      const transceivers = pc.getTransceivers();
+      const audioT = transceivers.find((t) => t.receiver.track.kind === 'audio');
+      if (audioT) {
+        audioT.direction = 'sendrecv';
+      } else {
+        pc.addTransceiver('audio', { direction: 'sendrecv' });
+      }
+    } catch (e) {
+      console.warn('[Voice] Transceiver config error:', e);
+    }
+
     // On ICE candidate generated
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -533,20 +656,55 @@ export class VoiceChatManager {
 
     // On remote audio track received
     pc.ontrack = (event) => {
-      console.log(`[Voice] Audio track received from ${clientId} (${name})`);
+      console.log(`[Voice] Audio track received from ${clientId} (${name})`, event.streams);
+      const stream = event.streams[0] || new MediaStream([event.track]);
+
+      // Route 1: Web Audio API (Direct to hardware speakers, immune to mobile HTML5 autoplay policy)
+      try {
+        if (!this.audioContext || this.audioContext.state === 'closed') {
+          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioCtx) this.audioContext = new AudioCtx();
+        }
+        if (this.audioContext) {
+          if (this.audioContext.state === 'suspended') {
+            this.audioContext.resume().catch(() => {});
+          }
+          const source = this.audioContext.createMediaStreamSource(stream);
+          source.connect(this.audioContext.destination);
+          console.log(`[Voice] Connected remote stream to AudioContext destination for ${clientId}`);
+        }
+      } catch (err) {
+        console.warn('[Voice] Web Audio routing error:', err);
+      }
+
+      // Route 2: HTML Audio element with mobile playsInline & auto-resume
       let audio = this.remoteAudios.get(clientId);
       if (!audio) {
         audio = new Audio();
         audio.autoplay = true;
-        // Hidden element
+        (audio as any).playsInline = true;
+        audio.volume = 1.0;
+        audio.muted = false;
         audio.style.display = 'none';
         document.body.appendChild(audio);
         this.remoteAudios.set(clientId, audio);
       }
-      audio.srcObject = event.streams[0];
+      audio.srcObject = stream;
       audio.play().catch((e) => {
         console.warn('[Voice] Remote audio autoplay blocked:', e);
       });
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[Voice] ICE state with ${clientId}:`, pc?.iceConnectionState);
+      if (pc?.iceConnectionState === 'failed') {
+        console.warn(`[Voice] ICE connection failed with ${clientId}. Attempting restart...`);
+        try {
+          if (typeof (pc as any).restartIce === 'function') {
+            (pc as any).restartIce();
+          }
+        } catch {}
+      }
     };
 
     pc.onconnectionstatechange = () => {
@@ -584,6 +742,7 @@ export class VoiceChatManager {
   }
 
   private cleanup() {
+    this.stopHeartbeat();
     if (this.speechCheckInterval) {
       clearInterval(this.speechCheckInterval);
       this.speechCheckInterval = null;
