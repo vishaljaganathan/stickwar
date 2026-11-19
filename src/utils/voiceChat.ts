@@ -72,6 +72,8 @@ export class VoiceChatManager {
   private audioProcessor: ScriptProcessorNode | null = null;
   private speechCheckInterval: number | null = null;
   private presenceHeartbeat: number | null = null;
+  private compressorNode: DynamicsCompressorNode | null = null;
+  private outputGainNode: GainNode | null = null;
   private isUnlockAttached: boolean = false;
   private peerPlayTimes: Map<string, number> = new Map();
   private peerSpeakingTimers: Map<string, any> = new Map();
@@ -93,6 +95,30 @@ export class VoiceChatManager {
   private listeners: Array<(state: VoiceState) => void> = [];
 
   private lastRelayChunkTime: Map<string, number> = new Map();
+
+  // Dynamics Compressor & Master Output for studio broadcast clarity without clipping distortion
+  private getAudioDestination(): AudioNode {
+    if (!this.audioContext) {
+      throw new Error('[Voice] AudioContext not ready');
+    }
+
+    if (!this.compressorNode || !this.outputGainNode) {
+      this.compressorNode = this.audioContext.createDynamicsCompressor();
+      this.compressorNode.threshold.setValueAtTime(-24, this.audioContext.currentTime);
+      this.compressorNode.knee.setValueAtTime(30, this.audioContext.currentTime);
+      this.compressorNode.ratio.setValueAtTime(4, this.audioContext.currentTime);
+      this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
+      this.compressorNode.release.setValueAtTime(0.25, this.audioContext.currentTime);
+
+      this.outputGainNode = this.audioContext.createGain();
+      this.outputGainNode.gain.setValueAtTime(1.3, this.audioContext.currentTime);
+
+      this.compressorNode.connect(this.outputGainNode);
+      this.outputGainNode.connect(this.audioContext.destination);
+    }
+
+    return this.compressorNode;
+  }
 
   constructor() {
     this.isSupported = typeof window !== 'undefined' &&
@@ -203,32 +229,41 @@ export class VoiceChatManager {
       const float32 = this.base64ToFloat32Array(base64);
       if (!float32 || float32.length === 0) return;
 
-      // 2. Create audio buffer
+      // 2. Micro-fade edge smoothing to completely remove boundary clicks and pops
+      const fadeLen = Math.min(16, Math.floor(float32.length / 4));
+      for (let i = 0; i < fadeLen; i++) {
+        const factor = i / fadeLen;
+        float32[i] *= factor;
+        float32[float32.length - 1 - i] *= factor;
+      }
+
+      // 3. Create audio buffer
       const buffer = this.audioContext.createBuffer(1, float32.length, sampleRate);
       buffer.getChannelData(0).set(float32);
 
-      // 3. Create buffer source with speech volume boost for mobile phone speakers
+      // 4. Create buffer source and route through Dynamics Compressor for clean, unclipped broadcast audio
       const source = this.audioContext.createBufferSource();
       source.buffer = buffer;
-      const gainNode = this.audioContext.createGain();
-      gainNode.gain.value = 1.6;
-      source.connect(gainNode);
-      gainNode.connect(this.audioContext.destination);
+      const audioDest = this.getAudioDestination();
+      source.connect(audioDest);
 
-      // 4. Jitter buffer / continuous gapless playback scheduling
+      // 5. Ultra-low-latency jitter buffer scheduling (clamped between 15ms and 75ms to eliminate lag)
       const now = this.audioContext.currentTime;
       let nextPlayTime = this.peerPlayTimes.get(fromClientId) || 0;
-      if (nextPlayTime < now) {
-        nextPlayTime = now + 0.04; // 40ms safety buffer
-      } else if (nextPlayTime > now + 0.35) {
-        // Prevent backlog delay if network had a spike
-        nextPlayTime = now + 0.04;
+      const leadTime = nextPlayTime - now;
+
+      if (leadTime < 0) {
+        nextPlayTime = now + 0.015; // Tight 15ms safety cushion
+      } else if (leadTime > 0.075) {
+        // Fast-forward backlog immediately so lag never accumulates
+        nextPlayTime = now + 0.015;
       }
+
       source.start(nextPlayTime);
       nextPlayTime += buffer.duration;
       this.peerPlayTimes.set(fromClientId, nextPlayTime);
 
-      // 5. Update speaker indicator in UI (avatar green pulsing ring & speaking banner)
+      // 6. Update speaker indicator in UI (avatar green pulsing ring & speaking banner)
       let peer = this.remotePeers.get(fromClientId);
       const targetSlot = slot || peer?.slot || 'p2';
       const namedRoster = networkManager.getNamedRoster();
@@ -259,7 +294,7 @@ export class VoiceChatManager {
           p.isSpeaking = false;
           this.notify();
         }
-      }, 350);
+      }, 450);
       this.peerSpeakingTimers.set(fromClientId, timer);
     } catch (err) {
       console.warn('[Voice] Error playing remote audio chunk:', err);
@@ -346,14 +381,13 @@ export class VoiceChatManager {
     this.notify();
 
     try {
-      // 1. Request microphone access with high quality speech processing
+      // 1. Request microphone access with native hardware DSP (echo cancellation, noise suppression, AGC)
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 48000
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true },
+          channelCount: { ideal: 1 }
         },
         video: false
       });
@@ -485,7 +519,7 @@ export class VoiceChatManager {
     return this.isMuted;
   }
 
-  // Web Audio Analyser & Real-time Audio Processor
+  // Web Audio Analyser & Real-time HD Audio Processor
   private startAudioAnalyser(stream: MediaStream) {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -499,14 +533,29 @@ export class VoiceChatManager {
       }
 
       const source = this.audioContext.createMediaStreamSource(stream);
+
+      // 1. Hardware Highpass filter (80Hz): removes phone handling vibration, desk thumps & rumble
+      const highpass = this.audioContext.createBiquadFilter();
+      highpass.type = 'highpass';
+      highpass.frequency.setValueAtTime(80, this.audioContext.currentTime);
+
+      // 2. Hardware Lowpass filter (10.5kHz): eliminates background hiss, coil whine & aliasing
+      const lowpass = this.audioContext.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.setValueAtTime(10500, this.audioContext.currentTime);
+
+      source.connect(highpass);
+      highpass.connect(lowpass);
+
+      // Connect filtered signal to analyser for UI level meters
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
       this.analyser.smoothingTimeConstant = 0.4;
-      source.connect(this.analyser);
+      lowpass.connect(this.analyser);
 
-      // Create ScriptProcessorNode for real-time VoIP audio chunk streaming (4096 samples = ~85-92ms)
-      const processor = this.audioContext.createScriptProcessor(4096, 1, 1);
-      source.connect(processor);
+      // Ultra-low-latency ScriptProcessorNode (2048 samples = ~42ms capture latency)
+      const processor = this.audioContext.createScriptProcessor(2048, 1, 1);
+      lowpass.connect(processor);
 
       // ScriptProcessorNode requires a destination connection to process audio
       const muteGain = this.audioContext.createGain();
@@ -515,6 +564,9 @@ export class VoiceChatManager {
       muteGain.connect(this.audioContext.destination);
 
       this.audioProcessor = processor;
+
+      let vadHangover = 0;
+      const HANGOVER_BUFFERS = 10; // ~420ms hangover: keeps words, syllables and quiet endings uncut
 
       processor.onaudioprocess = (e) => {
         if (!this.isJoined || this.isMuted) return;
@@ -528,11 +580,26 @@ export class VoiceChatManager {
         }
         const rms = Math.sqrt(sum / input.length);
 
-        // If speaking above ambient noise threshold
-        if (rms > 0.012) {
-          const sampleRate = this.audioContext?.sampleRate || 44100;
-          const targetRate = 12000;
+        // Speaking detection with 420ms hangover
+        if (rms > 0.008) {
+          vadHangover = HANGOVER_BUFFERS;
+        }
+
+        // Transmit while speaking or within the natural speech hangover window
+        if (vadHangover > 0) {
+          vadHangover--;
+
+          const sampleRate = this.audioContext?.sampleRate || 48000;
+          const targetRate = 24000; // 24kHz HD Voice rate
           const resampled = this.resampleAudio(input, sampleRate, targetRate);
+
+          // Micro-fade chunk boundaries to prevent digital click/pop noise
+          const fadeLen = Math.min(16, Math.floor(resampled.length / 4));
+          for (let i = 0; i < fadeLen; i++) {
+            const factor = i / fadeLen;
+            resampled[i] *= factor;
+            resampled[resampled.length - 1 - i] *= factor;
+          }
 
           const int16 = new Int16Array(resampled.length);
           for (let i = 0; i < resampled.length; i++) {
@@ -957,6 +1024,20 @@ export class VoiceChatManager {
     this.peerSpeakingTimers.clear();
     this.peerPlayTimes.clear();
     this.lastRelayChunkTime.clear();
+
+    if (this.compressorNode) {
+      try {
+        this.compressorNode.disconnect();
+      } catch {}
+      this.compressorNode = null;
+    }
+
+    if (this.outputGainNode) {
+      try {
+        this.outputGainNode.disconnect();
+      } catch {}
+      this.outputGainNode = null;
+    }
 
     if (this.audioContext) {
       try {
